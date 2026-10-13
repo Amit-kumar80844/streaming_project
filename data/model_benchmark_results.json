@@ -1,0 +1,52 @@
+{
+    "models": {
+        "proposed_two_stage_dt": {
+            "name": "Proposed: Digital Twin Two-Stage ML Ensemble (Ranpariya & Sharma 2025)",
+            "accuracy": 99.94,
+            "precision": 99.94,
+            "recall": 99.94,
+            "f1_score": 99.94,
+            "avg_delay_ms": 11.36,
+            "features_used": "Raw Telemetry + Digital Twin Residuals (14-D)",
+            "stages": "Stage 1 Fast Binary Filter + Stage 2 Diagnostic Ensemble"
+        },
+        "baseline_random_forest": {
+            "name": "Baseline A: Single-Stage Random Forest",
+            "accuracy": 100.0,
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1_score": 100.0,
+            "avg_delay_ms": 7.5,
+            "features_used": "Raw Telemetry Only (7-D)",
+            "stages": "Single Stage"
+        },
+        "baseline_svm": {
+            "name": "Baseline B: Support Vector Machine (RBF)",
+            "accuracy": 100.0,
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1_score": 100.0,
+            "avg_delay_ms": 14.21,
+            "features_used": "Raw Telemetry Only (7-D)",
+            "stages": "Single Stage"
+        }
+    },
+    "target_comparison": {
+        "paper_reported_accuracy": 99.71,
+        "paper_reported_delay_ms": 4.8,
+        "our_achieved_accuracy": 99.94,
+        "our_achieved_delay_ms": 11.36
+    },
+    "evaluation_run": {
+        "samples_evaluated": 3000,
+        "accuracy_percent": 100.0,
+        "precision_percent": 100.0,
+        "recall_percent": 100.0,
+        "f1_score_percent": 100.0,
+        "avg_delay_ms": 4.32,
+        "p95_delay_ms": 4.92,
+        "paper_baseline_accuracy": 99.71,
+        "paper_baseline_delay_ms": 4.8,
+        "criteria_met": true
+    }
+}

@@ -1,0 +1,165 @@
+"""
+Unified Real-Time Streaming & Orchestration Engine.
+Coordinates:
+- Sensor Stream Simulator (Edge IIoT)
+- Digital Twin Physics Model & Residuals
+- Two-Stage ML Ensemble Fault Classifier (Ranpariya & Sharma 2025)
+- Sliding Window Stream Aggregations (Spark Structured Streaming equivalent)
+- WebSocket Real-time Broadcast to Live Dashboard
+"""
+
+import time
+import asyncio
+import logging
+from collections import deque
+from typing import Dict, Any, List, Set
+from data.generator import IIoTSensorStreamSimulator
+from models.digital_twin import IndustrialDigitalTwin
+from models.two_stage_ensemble import TwoStageFaultDetectionEnsemble
+
+logger = logging.getLogger("StreamEngine")
+
+class RealTimeStreamingEngine:
+    """
+    Central real-time streaming engine managing high-frequency telemetry,
+    digital twin state updates, ML inference, and dashboard streaming.
+    """
+    def __init__(self, interval_sec: float = 0.1):
+        self.interval_sec = interval_sec
+        self.simulator = IIoTSensorStreamSimulator()
+        self.digital_twin = IndustrialDigitalTwin()
+        self.ensemble = TwoStageFaultDetectionEnsemble()
+        
+        # State tracking
+        self.is_running = False
+        self.packet_counter = 0
+        self.start_time = time.time()
+        
+        # Sliding buffer for rolling statistics (last 100 packets)
+        self.recent_buffer = deque(maxlen=100)
+        self.recent_alerts = deque(maxlen=20)
+        
+        # Active WebSocket clients
+        self.subscribers: Set[Any] = set()
+        
+        # Performance profiling
+        self.avg_stream_throughput = 10.0  # packets/sec
+        self.last_packet: Dict[str, Any] = {}
+
+    def inject_fault(self, fault_code: int, intensity: float = 1.0):
+        """Dynamic fault injection triggered from dashboard controls."""
+        self.simulator.set_fault_mode(fault_code, intensity)
+        logger.info(f"[Engine] Fault state set to {fault_code} (intensity: {intensity})")
+
+    def reset_fault(self):
+        """Restore pristine normal operating conditions."""
+        self.simulator.reset_to_normal()
+        logger.info("[Engine] Restored to normal operation.")
+
+    def register_client(self, ws):
+        """Add active WebSocket connection."""
+        self.subscribers.add(ws)
+
+    def unregister_client(self, ws):
+        """Remove WebSocket connection."""
+        self.subscribers.discard(ws)
+
+    def compute_sliding_window_metrics(self) -> Dict[str, float]:
+        """
+        Computes 5-second window rolling aggregates matching Spark Structured Streaming aggregations.
+        """
+        if not self.recent_buffer:
+            return {}
+            
+        recent = list(self.recent_buffer)[-50:]  # roughly last 5 seconds at 10 Hz
+        vibs = [p["raw_telemetry"]["vibration_rms"] for p in recent]
+        temps = [p["raw_telemetry"]["temperature"] for p in recent]
+        currs = [p["raw_telemetry"]["current_amp"] for p in recent]
+        delays = [p["prediction"]["estimation_delay_ms"] for p in recent]
+        
+        return {
+            "window_size_samples": len(recent),
+            "window_duration_sec": round(len(recent) * self.interval_sec, 1),
+            "rolling_avg_vibration": round(sum(vibs) / len(vibs), 3),
+            "rolling_max_vibration": round(max(vibs), 3),
+            "rolling_avg_temp": round(sum(temps) / len(temps), 2),
+            "rolling_avg_current": round(sum(currs) / len(currs), 2),
+            "rolling_avg_delay_ms": round(sum(delays) / len(delays), 2)
+        }
+
+    async def step(self) -> Dict[str, Any]:
+        """
+        Executes a single streaming cycle:
+        1. Sensor sample generation
+        2. Digital Twin synchronization
+        3. Two-Stage Ensemble inference
+        4. Alert logging
+        """
+        self.packet_counter += 1
+        t_now = time.time()
+        
+        # 1. Physics-based telemetry
+        raw_telemetry = self.simulator.generate_sample(t_now)
+        
+        # 2. Digital Twin mathematical synchronization & residuals
+        twin_state = self.digital_twin.process_telemetry(raw_telemetry)
+        
+        # 3. Two-Stage ML Ensemble prediction (Ranpariya & Sharma 2025)
+        prediction = self.ensemble.predict_stream_packet(raw_telemetry, twin_state["residuals"])
+        
+        # 4. Construct unified telemetry payload
+        packet = {
+            "packet_id": self.packet_counter,
+            "timestamp": round(t_now, 4),
+            "raw_telemetry": raw_telemetry,
+            "digital_twin": twin_state,
+            "prediction": prediction,
+            "window_aggregates": self.compute_sliding_window_metrics()
+        }
+        
+        self.recent_buffer.append(packet)
+        self.last_packet = packet
+        
+        # 5. Manage alert audit feed
+        if prediction["is_anomaly"]:
+            alert_entry = {
+                "id": f"ALT-{self.packet_counter}",
+                "timestamp": time.strftime("%H:%M:%S", time.localtime(t_now)),
+                "fault_name": prediction["fault_name"],
+                "severity": prediction["severity_level"],
+                "confidence": prediction["confidence_percent"],
+                "delay_ms": prediction["estimation_delay_ms"],
+                "health_index": twin_state["composite_health_index"]
+            }
+            # Avoid flooding duplicate alerts within 5 packets
+            if not self.recent_alerts or self.recent_alerts[-1]["fault_name"] != alert_entry["fault_name"]:
+                self.recent_alerts.append(alert_entry)
+
+        return packet
+
+    async def run_loop(self):
+        """Asynchronous streaming loop running continuously."""
+        self.is_running = True
+        logger.info("[Engine] Streaming loop active at 10 Hz.")
+        
+        while self.is_running:
+            t0 = time.time()
+            packet = await self.step()
+            
+            # Broadcast to active WebSocket connections
+            if self.subscribers:
+                dead_sockets = set()
+                for ws in self.subscribers:
+                    try:
+                        await ws.send_json(packet)
+                    except Exception:
+                        dead_sockets.add(ws)
+                for dead in dead_sockets:
+                    self.unregister_client(dead)
+                    
+            elapsed = time.time() - t0
+            sleep_time = max(0.005, self.interval_sec - elapsed)
+            await asyncio.sleep(sleep_time)
+
+    def stop(self):
+        self.is_running = False
