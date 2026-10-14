@@ -1,8 +1,7 @@
 # Real-Time Digital Twin for Streaming-Based Anomaly Detection
 ### IOE413: Streaming & Data Analytics — Mini Project
 **TEAM NO — 12**  
-**Student Name:** Rohit Pratap Singh  
-**Roll No:** 2023BCS0138  
+
 **Baseline Research Paper:**  
 A. Ranpariya and S. Sharma, *"A digital twin solution for fault detection in time-critical IIoT applications,"* *Journal of Simulation*, vol. 19, no. 4, pp. 441–454, 2025. [DOI: 10.1080/17477778.2025.2453725](https://doi.org/10.1080/17477778.2025.2453725)
 
