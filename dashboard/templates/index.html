@@ -3,365 +3,450 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Real-Time Digital Twin Anomaly Detection | IOE413 Team 12</title>
-  <meta name="description" content="Streaming-based anomaly detection using Digital Twin and Two-Stage ML ensemble (Ranpariya & Sharma 2025). IOE413 Streaming & Data Analytics Mini Project.">
-  <link rel="stylesheet" href="/static/css/dashboard.css">
+  <title>Digital Twin Operations Console | TWIN-MTR-01 | IOE413</title>
+  <meta name="description" content="Real-Time Industrial Operations Console for Digital Twin Anomaly Detection using Two-Stage ML Ensemble. IOE413 Team 12.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=7">
 </head>
 <body>
 
-  <!-- Top Navigation / Header -->
-  <header class="app-header">
-    <div class="header-left">
-      <div class="logo-icon">
-        <svg viewBox="0 0 24 24">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+  <!-- ========================================================= -->
+  <!-- HEADER — compact, identity + global status -->
+  <!-- ========================================================= -->
+  <header class="app-header" role="banner">
+    <div class="header-asset">
+      <div class="asset-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
         </svg>
       </div>
-      <div class="header-title">
-        <h1>REAL-TIME DIGITAL TWIN ANOMALY DETECTION</h1>
-        <div class="header-subtitle">
-          <span>IOE413 Streaming & Data Analytics</span>
-          <span class="badge badge-team">TEAM NO - 12 | Rohit Pratap Singh (2023BCS0138)</span>
-          <span class="badge badge-paper">Base Paper: Ranpariya & Sharma (2025)</span>
+      <div class="asset-info">
+        <h1 class="asset-name">TWIN-MTR-01 — Operations Console</h1>
+        <div class="asset-meta">
+          <span>15 kW Induction Motor + Centrifugal Pump</span>
+          <span class="sep">|</span>
+          <span>IOE413 Team 12</span>
+          <span class="sep">|</span>
+          <span class="text-dim">Ranpariya &amp; Sharma (2025) baseline</span>
         </div>
       </div>
     </div>
 
-    <div class="header-right">
-      <div class="stream-status-pill" id="streamStatusPill">
-        <span class="pulse-dot"></span>
-        <span>STREAM LIVE @ 10 Hz</span>
+    <div class="header-status" role="status" aria-live="polite">
+      <div class="status-group">
+        <div class="status-item" id="wsStatusBadge" title="WebSocket connection to streaming server">
+          <span class="status-dot" id="wsDot"></span>
+          <span id="wsLabel">Connecting…</span>
+        </div>
+        <div class="status-item" id="engineStatusBadge" title="Stream engine state">
+          <span class="status-dot" id="engineDot"></span>
+          <span id="engineLabel">Initialising</span>
+        </div>
+        <div class="status-item text-dim" title="Kafka broker (optional)">
+          <span class="status-dot dot-offline"></span>
+          <span>Kafka (optional)</span>
+        </div>
       </div>
-      <div style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-dim);">
-        Packets: <span id="packetCount" style="color: #38bdf8; font-weight: 700;">0</span>
+      <div class="packet-counter" aria-label="Packets processed">
+        <span class="text-dim">Packets</span>
+        <span id="packetCount" class="mono">0</span>
       </div>
     </div>
   </header>
 
-  <main class="dashboard-container">
+  <!-- Reconnect / offline banner -->
+  <div class="reconnect-banner" id="reconnectBanner" aria-live="assertive" hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+    <span id="reconnectMsg">WebSocket disconnected — reconnecting…</span>
+  </div>
 
-    <!-- KPI Metrics Top Grid -->
-    <section class="kpi-grid">
-      <!-- KPI 1: Composite Health Index -->
-      <div class="glass-panel kpi-card" id="cardHealth">
-        <div class="kpi-header">
-          <span class="kpi-title">Composite Health Index (CHI)</span>
-          <svg class="kpi-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+  <main class="console-layout" role="main">
+
+    <!-- ========================================================= -->
+    <!-- ROW 1: KPI STRIP -->
+    <!-- ========================================================= -->
+    <section class="kpi-strip" aria-label="Key performance indicators">
+
+      <div class="kpi-card" id="kpiCardCHI" aria-label="Composite Health Index">
+        <div class="kpi-label">Composite Health Index</div>
+        <div class="kpi-value-wrap">
+          <span class="kpi-big" id="kpiCHI">—</span>
+          <span class="kpi-unit">%</span>
         </div>
-        <div class="kpi-value-row">
-          <span class="kpi-value" id="kpiHealthVal">100.0%</span>
-          <span class="kpi-unit">State</span>
-        </div>
-        <div class="kpi-subtext" id="kpiHealthStatus" style="color: #10b981; font-weight: 600;">
-          Optimal / Healthy
-        </div>
+        <div class="kpi-sub" id="kpiCHIStatus">Awaiting stream…</div>
+        <div class="kpi-bar-track"><div class="kpi-bar" id="kpiCHIBar"></div></div>
       </div>
 
-      <!-- KPI 2: Real-Time Estimation Delay -->
-      <div class="glass-panel kpi-card">
-        <div class="kpi-header">
-          <span class="kpi-title">Estimation Delay</span>
-          <svg class="kpi-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <div class="kpi-card" aria-label="Current asset condition">
+        <div class="kpi-label">Asset Condition</div>
+        <div class="kpi-value-wrap">
+          <span class="kpi-badge-lg" id="kpiCondition">N/A</span>
         </div>
-        <div class="kpi-value-row">
-          <span class="kpi-value" id="kpiDelayVal">4.78</span>
+        <div class="kpi-sub" id="kpiConfText">Confidence: —</div>
+      </div>
+
+      <div class="kpi-card" aria-label="Active anomaly count">
+        <div class="kpi-label">Active Anomalies</div>
+        <div class="kpi-value-wrap">
+          <span class="kpi-big" id="kpiAnomalyCount">0</span>
+          <span class="kpi-unit">alerts</span>
+        </div>
+        <div class="kpi-sub" id="kpiLastAlert">No alerts — system normal</div>
+      </div>
+
+      <div class="kpi-card" aria-label="Estimation delay">
+        <div class="kpi-label">Estimation Delay</div>
+        <div class="kpi-value-wrap">
+          <span class="kpi-big mono" id="kpiDelay">—</span>
           <span class="kpi-unit">ms</span>
         </div>
-        <div class="kpi-subtext" id="kpiDelaySub">
-          <span style="color:#10b981;">✔ Target Met (&lt; 4.8 ms)</span>
-        </div>
+        <div class="kpi-sub" id="kpiDelaySub">Two-Stage ML inference</div>
       </div>
 
-      <!-- KPI 3: Two-Stage Ensemble Decision -->
-      <div class="glass-panel kpi-card">
-        <div class="kpi-header">
-          <span class="kpi-title">Two-Stage Model Inference</span>
-          <svg class="kpi-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      <div class="kpi-card" aria-label="Stream rate">
+        <div class="kpi-label">Stream Rate (simulated)</div>
+        <div class="kpi-value-wrap">
+          <span class="kpi-big mono" id="kpiRate">—</span>
+          <span class="kpi-unit">Hz</span>
         </div>
-        <div class="kpi-value-row" style="margin-top: 2px;">
-          <span id="kpiFaultName" style="font-size: 1.15rem; font-weight: 700; color: #ffffff;">Normal Operation</span>
-        </div>
-        <div style="display: flex; gap: 6px; margin-top: 8px;">
-          <span class="badge badge-team" id="stage1Badge">S1: NORMAL (1.3ms)</span>
-          <span class="badge badge-paper" id="stage2Badge">S2: BYPASSED</span>
-        </div>
+        <div class="kpi-sub" id="kpiWindow">5 s window / 1 s slide</div>
       </div>
 
-      <!-- KPI 4: Spark Structured Streaming Ingestion -->
-      <div class="glass-panel kpi-card">
-        <div class="kpi-header">
-          <span class="kpi-title">Streaming Ingestion & Windows</span>
-          <svg class="kpi-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7M4 7c0-2 1-3 3-3h10c2 0 3 1 3 3M4 7h16"/></svg>
-        </div>
-        <div class="kpi-value-row">
-          <span class="kpi-value" id="kpiThroughput">10.0 Hz</span>
-          <span class="kpi-unit">Kafka Stream</span>
-        </div>
-        <div class="kpi-subtext" id="kpiSparkWindow">
-          5s Window / 1s Slide
-        </div>
-      </div>
     </section>
 
-    <!-- Main Visual Split: Digital Twin Canvas + Live Charts -->
-    <section class="main-view-grid">
+    <!-- ========================================================= -->
+    <!-- ROW 2: DIGITAL TWIN PANEL + LIVE CHARTS -->
+    <!-- ========================================================= -->
+    <section class="twin-charts-row" aria-label="Digital twin and telemetry charts">
 
-      <!-- Left Column: Digital Twin Animated Visualizer -->
-      <div class="glass-panel visualizer-panel">
-        <div class="panel-header">
+      <!-- Left: Digital Twin Panel -->
+      <div class="panel twin-panel">
+        <div class="panel-head">
           <div class="panel-title">
-            <svg width="20" height="20" fill="none" stroke="#38bdf8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-            <span>PHYSICAL ASSET DIGITAL TWIN (TWIN-MTR-01)</span>
+            <svg class="panel-icon icon-teal" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            Physical Asset — Digital Twin
           </div>
-          <span class="badge badge-team">15 kW Motor + Centrifugal Pump</span>
+          <span class="tag tag-asset">TWIN-MTR-01</span>
         </div>
 
-        <div class="canvas-container">
-          <canvas id="twinCanvas"></canvas>
-          <div class="twin-overlay-stats">
-            <div class="twin-stat-chip">⚡ 1480 RPM Synchronous</div>
-            <div class="twin-stat-chip">🧲 Cloud-Edge Twin Sync</div>
+        <div class="twin-canvas-wrap">
+          <canvas id="twinCanvas" aria-label="Digital twin motor visualisation"></canvas>
+          <div class="twin-overlay">
+            <div class="twin-chip" id="twinChipRPM">RPM: —</div>
+            <div class="twin-chip" id="twinChipLoad">Load: —</div>
+            <div class="twin-chip twin-chip-right" id="twinChipFault">Normal</div>
           </div>
         </div>
 
-        <!-- Residuals & Synchronization Telemetry -->
-        <div class="twin-metrics-row">
-          <div class="mini-stat-card">
-            <div class="mini-stat-label">Vib Residual (Δ)</div>
-            <div class="mini-stat-val" id="resVib" style="color: #06b6d4;">0.042 mm/s</div>
+        <div class="twin-readings">
+          <div class="reading-group">
+            <div class="reading-head">Observed (Sensor)</div>
+            <div class="reading-row"><span>Temperature</span><span class="mono" id="sensorTemp">— °C</span></div>
+            <div class="reading-row"><span>Vibration RMS</span><span class="mono" id="sensorVib">— mm/s</span></div>
+            <div class="reading-row"><span>Current</span><span class="mono" id="sensorCurr">— A</span></div>
+            <div class="reading-row"><span>Pressure</span><span class="mono" id="sensorPress">— bar</span></div>
           </div>
-          <div class="mini-stat-card">
-            <div class="mini-stat-label">Thermal Residual (Δ)</div>
-            <div class="mini-stat-val" id="resTemp" style="color: #f59e0b;">0.31 °C</div>
+          <div class="reading-group">
+            <div class="reading-head">Virtual Twin (Expected)</div>
+            <div class="reading-row"><span>Temperature</span><span class="mono" id="twinTemp">— °C</span></div>
+            <div class="reading-row"><span>Vibration RMS</span><span class="mono" id="twinVib">— mm/s</span></div>
+            <div class="reading-row"><span>Current</span><span class="mono" id="twinCurr">— A</span></div>
+            <div class="reading-row"><span>Pressure</span><span class="mono" id="twinPress">— bar</span></div>
           </div>
-          <div class="mini-stat-card">
-            <div class="mini-stat-label">Pressure Residual (Δ)</div>
-            <div class="mini-stat-val" id="resPress" style="color: #10b981;">0.025 bar</div>
+        </div>
+
+        <div class="residuals-row" aria-label="Sensor residuals">
+          <div class="residual-chip">
+            <div class="res-label">Δ Vibration</div>
+            <div class="res-val" id="resVib">—</div>
           </div>
-          <div class="mini-stat-card">
-            <div class="mini-stat-label">Acoustic Residual (Δ)</div>
-            <div class="mini-stat-val" id="resAcoustic" style="color: #c084fc;">0.45 dB</div>
+          <div class="residual-chip">
+            <div class="res-label">Δ Temperature</div>
+            <div class="res-val" id="resTemp">—</div>
+          </div>
+          <div class="residual-chip">
+            <div class="res-label">Δ Pressure</div>
+            <div class="res-val" id="resPress">—</div>
+          </div>
+          <div class="residual-chip">
+            <div class="res-label">Δ Acoustic</div>
+            <div class="res-val" id="resAcoustic">—</div>
           </div>
         </div>
       </div>
 
-      <!-- Right Column: Real-Time Telemetry Stream Charts -->
-      <div class="glass-panel charts-panel">
-        <div class="panel-header" style="margin-bottom: 0;">
+      <!-- Right: Charts Panel -->
+      <div class="panel charts-panel">
+        <div class="panel-head">
           <div class="panel-title">
-            <svg width="20" height="20" fill="none" stroke="#38bdf8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/></svg>
-            <span>REAL-TIME MULTI-CHANNEL TELEMETRY</span>
+            <svg class="panel-icon icon-cyan" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Live Telemetry — Sliding Window
           </div>
-          <span class="badge badge-paper">Sliding Window (50 samples)</span>
+          <span class="tag tag-dim" id="chartWindowLabel">~50 samples</span>
         </div>
 
         <div class="charts-grid">
-          <!-- Chart 1: Vibration Dynamics -->
-          <div class="chart-card">
-            <div class="chart-card-header">
-              <span class="chart-card-title">VIBRATION DYNAMICS (RMS & PEAK)</span>
-              <span style="font-size:0.7rem; color:#06b6d4;">ISO 10816 Limit: 4.5 mm/s</span>
-            </div>
-            <div class="chart-canvas-wrap">
-              <canvas id="chartVibration"></canvas>
-            </div>
+          <div class="chart-box">
+            <div class="chart-label">Vibration RMS &amp; Peak (mm/s) <span class="chart-limit text-warn">ISO limit 4.5</span></div>
+            <div class="chart-wrap"><canvas id="chartVibration"></canvas></div>
           </div>
-
-          <!-- Chart 2: Thermal Profile -->
-          <div class="chart-card">
-            <div class="chart-card-header">
-              <span class="chart-card-title">TEMPERATURE: ACTUAL VS TWIN</span>
-              <span style="font-size:0.7rem; color:#f59e0b;">Limit: 85°C</span>
-            </div>
-            <div class="chart-canvas-wrap">
-              <canvas id="chartTemperature"></canvas>
-            </div>
+          <div class="chart-box">
+            <div class="chart-label">Temperature: Actual vs Twin (°C) <span class="chart-limit text-amber">Limit 85°C</span></div>
+            <div class="chart-wrap"><canvas id="chartTemperature"></canvas></div>
           </div>
-
-          <!-- Chart 3: Stator Electrical Current -->
-          <div class="chart-card">
-            <div class="chart-card-header">
-              <span class="chart-card-title">STATOR CURRENT DRAW (A)</span>
-              <span style="font-size:0.7rem; color:#eab308;">Rated: 28.5 A</span>
-            </div>
-            <div class="chart-canvas-wrap">
-              <canvas id="chartElectrical"></canvas>
-            </div>
+          <div class="chart-box">
+            <div class="chart-label">Stator Current (A) <span class="chart-limit text-dim">Rated 28.5 A</span></div>
+            <div class="chart-wrap"><canvas id="chartElectrical"></canvas></div>
           </div>
-
-          <!-- Chart 4: Composite Health Index -->
-          <div class="chart-card">
-            <div class="chart-card-header">
-              <span class="chart-card-title">COMPOSITE HEALTH INDEX (%)</span>
-              <span style="font-size:0.7rem; color:#10b981;">Min Threshold: 60%</span>
-            </div>
-            <div class="chart-canvas-wrap">
-              <canvas id="chartHealth"></canvas>
-            </div>
+          <div class="chart-box">
+            <div class="chart-label">Composite Health Index (%) <span class="chart-limit text-green">Min 60%</span></div>
+            <div class="chart-wrap"><canvas id="chartHealth"></canvas></div>
           </div>
         </div>
       </div>
+
     </section>
 
-    <!-- Fault Injection Control Deck -->
-    <section class="glass-panel fault-lab-panel">
-      <div class="panel-header" style="margin-bottom: 0.5rem;">
-        <div class="panel-title">
-          <svg width="20" height="20" fill="none" stroke="#f59e0b" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-          <span>INTERACTIVE FAULT INJECTION DECK</span>
+    <!-- ========================================================= -->
+    <!-- ROW 3: TWO-STAGE INFERENCE DETAIL + FAULT INJECTION -->
+    <!-- ========================================================= -->
+    <section class="inference-fault-row" aria-label="Inference and fault injection">
+
+      <!-- Two-Stage Inference Panel -->
+      <div class="panel inference-panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <svg class="panel-icon icon-teal" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            Two-Stage ML Inference
+          </div>
+          <span class="tag tag-dim">Ranpariya &amp; Sharma 2025</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 1rem;">
-          <span style="font-size: 0.8rem; color: var(--text-dim);">Severity Intensity: <strong id="faultIntensityVal" style="color: #38bdf8;">100%</strong></span>
-          <input type="range" id="faultIntensity" min="20" max="100" value="100" style="accent-color: #06b6d4; cursor: pointer;">
+
+        <div class="stage-flow">
+          <div class="stage-box" id="stage1Box">
+            <div class="stage-label">Stage 1 — Binary Screen (SGD)</div>
+            <div class="stage-result" id="stage1Result">—</div>
+            <div class="stage-delay" id="stage1Delay">delay: — ms</div>
+          </div>
+          <div class="stage-arrow">→</div>
+          <div class="stage-box" id="stage2Box">
+            <div class="stage-label">Stage 2 — Fault Classifier (ExtraTrees)</div>
+            <div class="stage-result" id="stage2Result">—</div>
+            <div class="stage-delay" id="stage2Delay">delay: — ms</div>
+          </div>
+        </div>
+
+        <div class="fault-diagnosis-row">
+          <div>
+            <div class="fd-label">Diagnosis</div>
+            <div class="fd-name" id="kpiFaultName">Normal Operation</div>
+          </div>
+          <div>
+            <div class="fd-label">Confidence</div>
+            <div class="fd-val mono" id="kpiConfidence">—</div>
+          </div>
+          <div>
+            <div class="fd-label">Severity</div>
+            <div class="fd-val" id="kpiSeverity">—</div>
+          </div>
+          <div>
+            <div class="fd-label">Total Delay</div>
+            <div class="fd-val mono" id="kpiTotalDelay">—</div>
+          </div>
         </div>
       </div>
 
-      <p style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-        Inject realistic physical fault scenarios into the live Kafka stream to evaluate the Two-Stage Ensemble response and Digital Twin residual tracking:
-      </p>
+      <!-- Fault Injection Panel -->
+      <div class="panel fault-panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            Fault Injection Lab
+          </div>
+          <div class="intensity-control">
+            <label for="faultIntensity" class="text-dim" style="font-size:0.8rem">Severity:</label>
+            <input type="range" id="faultIntensity" min="10" max="100" value="100" aria-label="Fault severity intensity" style="accent-color:#f59e0b;cursor:pointer;width:80px">
+            <span id="faultIntensityVal" class="mono" style="color:#f59e0b;font-size:0.85rem;min-width:2.5rem">100%</span>
+          </div>
+        </div>
 
-      <div class="fault-buttons-grid">
-        <button class="fault-btn btn-normal active" data-fault="0">
-          <span>🟢 Normal Operation</span>
-          <span class="fault-btn-badge">Pristine Baseline</span>
-        </button>
+        <p class="panel-note">Inject realistic fault signatures into the simulated telemetry stream. The two-stage ensemble responds within ~4.8 ms.</p>
 
-        <button class="fault-btn" data-fault="1">
-          <span>🔴 Bearing Race Defect</span>
-          <span class="fault-btn-badge">High Vib Peak & Acoustic</span>
-        </button>
+        <div class="fault-grid" role="group" aria-label="Fault injection buttons">
+          <button class="fault-btn btn-normal active" id="faultBtn0" data-fault="0" aria-pressed="true">
+            <span class="fault-icon icon-green" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </span>
+            <span class="fault-name">Normal Operation</span>
+            <span class="fault-desc">Pristine baseline</span>
+          </button>
+          <button class="fault-btn btn-crit" id="faultBtn1" data-fault="1" aria-pressed="false">
+            <span class="fault-icon icon-red" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/></svg>
+            </span>
+            <span class="fault-name">Bearing Race Defect</span>
+            <span class="fault-desc">High vib peak &amp; acoustic</span>
+          </button>
+          <button class="fault-btn btn-crit" id="faultBtn2" data-fault="2" aria-pressed="false">
+            <span class="fault-icon icon-orange" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+            </span>
+            <span class="fault-name">Stator Overheating</span>
+            <span class="fault-desc">Thermal runaway</span>
+          </button>
+          <button class="fault-btn btn-warn" id="faultBtn3" data-fault="3" aria-pressed="false">
+            <span class="fault-icon icon-amber" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </span>
+            <span class="fault-name">Rotor Imbalance</span>
+            <span class="fault-desc">1x harmonic oscillation</span>
+          </button>
+          <button class="fault-btn btn-crit" id="faultBtn4" data-fault="4" aria-pressed="false">
+            <span class="fault-icon icon-red" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+            </span>
+            <span class="fault-name">Hydraulic Cavitation</span>
+            <span class="fault-desc">Pressure drop &amp; noise</span>
+          </button>
+          <button class="fault-btn btn-warn" id="faultBtn5" data-fault="5" aria-pressed="false">
+            <span class="fault-icon icon-amber" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+            </span>
+            <span class="fault-name">Sensor Drift</span>
+            <span class="fault-desc">Calibration bias</span>
+          </button>
+        </div>
 
-        <button class="fault-btn" data-fault="2">
-          <span>🔥 Stator Overheating</span>
-          <span class="fault-btn-badge">Thermal Runaway & Current Surge</span>
-        </button>
-
-        <button class="fault-btn" data-fault="3">
-          <span>⚙️ Dynamic Rotor Imbalance</span>
-          <span class="fault-btn-badge">1X Harmonic Oscillation</span>
-        </button>
-
-        <button class="fault-btn" data-fault="4">
-          <span>💧 Hydraulic Cavitation</span>
-          <span class="fault-btn-badge">Discharge Pressure Drop</span>
-        </button>
-
-        <button class="fault-btn" data-fault="5">
-          <span>⚠️ Sensor Drift / Bias</span>
-          <span class="fault-btn-badge">Calibration Failure Mode</span>
-        </button>
+        <div id="faultFeedback" class="fault-feedback" role="alert" aria-live="polite" hidden></div>
       </div>
+
     </section>
 
-    <!-- Bottom Section: Streaming Architecture Flow + Live Alert Audit Feed -->
-    <section class="bottom-grid">
+    <!-- ========================================================= -->
+    <!-- ROW 4: PIPELINE VIEW + OPERATOR CONTROLS -->
+    <!-- ========================================================= -->
+    <section class="pipeline-controls-row" aria-label="Pipeline status and operator controls">
 
-      <!-- Pipeline Architecture Flow Diagram -->
-      <div class="glass-panel" style="padding: 1.25rem;">
-        <div class="panel-header">
+      <!-- Pipeline / Service Status -->
+      <div class="panel pipeline-panel">
+        <div class="panel-head">
           <div class="panel-title">
-            <svg width="20" height="20" fill="none" stroke="#38bdf8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-            <span>STREAMING PIPELINE ARCHITECTURE</span>
-          </div>
-          <span class="badge badge-paper">End-to-End Pipeline</span>
-        </div>
-
-        <div class="arch-flow-diagram">
-          <div class="arch-node">
-            <div class="arch-node-title">IIoT Asset</div>
-            <div class="arch-node-sub">Edge Sensors (10 Hz)</div>
-          </div>
-          <div class="arch-arrow">➔</div>
-          <div class="arch-node">
-            <div class="arch-node-title">Apache Kafka</div>
-            <div class="arch-node-sub">Topic: iiot-sensor-stream</div>
-          </div>
-          <div class="arch-arrow">➔</div>
-          <div class="arch-node">
-            <div class="arch-node-title">Spark Streaming</div>
-            <div class="arch-node-sub">5s Sliding Windows</div>
-          </div>
-          <div class="arch-arrow">➔</div>
-          <div class="arch-node">
-            <div class="arch-node-title">Digital Twin</div>
-            <div class="arch-node-sub">Two-Stage Ensemble</div>
-          </div>
-          <div class="arch-arrow">➔</div>
-          <div class="arch-node">
-            <div class="arch-node-title">Live Dashboard</div>
-            <div class="arch-node-sub">WebSockets & Canvas</div>
+            <svg class="panel-icon icon-teal" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            Pipeline &amp; Service Status
           </div>
         </div>
 
-        <!-- Research Benchmark Comparison Table -->
-        <div style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem;">
-          <div style="font-size: 0.75rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.5rem;">
-            EMPIRICAL BENCHMARK COMPARISON (Ranpariya & Sharma 2025)
+        <div class="service-list" id="serviceList" role="list">
+          <!-- Populated by JS -->
+          <div class="service-row-skeleton" aria-label="Loading services…">Loading…</div>
+        </div>
+
+        <div class="pipeline-flow">
+          <div class="pipe-node pipe-active" id="pipeSimulator">
+            <div class="pipe-name">Simulator</div>
+            <div class="pipe-sub">10 Hz IIoT</div>
           </div>
-          <table style="width: 100%; font-size: 0.725rem; border-collapse: collapse; font-family: var(--font-mono);">
-            <thead>
-              <tr style="color: var(--text-dim); text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                <th style="padding: 4px 6px;">Model Architecture</th>
-                <th style="padding: 4px 6px;">Accuracy</th>
-                <th style="padding: 4px 6px;">Delay (ms)</th>
-                <th style="padding: 4px 6px;">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr style="color: #6ee7b7; font-weight: 600; background: rgba(16, 185, 129, 0.08);">
-                <td style="padding: 4px 6px;">Proposed Digital Twin 2-Stage Ensemble</td>
-                <td style="padding: 4px 6px;">99.71%</td>
-                <td style="padding: 4px 6px;">4.78 ms</td>
-                <td style="padding: 4px 6px;">Baseline Matched</td>
-              </tr>
-              <tr style="color: var(--text-muted);">
-                <td style="padding: 4px 6px;">Published Ranpariya & Sharma (2025)</td>
-                <td style="padding: 4px 6px;">99.71%</td>
-                <td style="padding: 4px 6px;">4.80 ms</td>
-                <td style="padding: 4px 6px;">Base Paper</td>
-              </tr>
-              <tr style="color: var(--text-muted);">
-                <td style="padding: 4px 6px;">Baseline A: Single-Stage Random Forest</td>
-                <td style="padding: 4px 6px;">94.80%</td>
-                <td style="padding: 4px 6px;">8.42 ms</td>
-                <td style="padding: 4px 6px;">Ablation Baseline</td>
-              </tr>
-              <tr style="color: var(--text-muted);">
-                <td style="padding: 4px 6px;">Baseline B: Support Vector Machine (RBF)</td>
-                <td style="padding: 4px 6px;">91.20%</td>
-                <td style="padding: 4px 6px;">15.60 ms</td>
-                <td style="padding: 4px 6px;">Traditional Method</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="pipe-arrow"></div>
+          <div class="pipe-node pipe-active" id="pipeTwin">
+            <div class="pipe-name">Digital Twin</div>
+            <div class="pipe-sub">Residuals + CHI</div>
+          </div>
+          <div class="pipe-arrow"></div>
+          <div class="pipe-node pipe-active" id="pipeML">
+            <div class="pipe-name">ML Ensemble</div>
+            <div class="pipe-sub">S1 + S2 Inference</div>
+          </div>
+          <div class="pipe-arrow"></div>
+          <div class="pipe-node pipe-active" id="pipeWS">
+            <div class="pipe-name">WebSocket</div>
+            <div class="pipe-sub">Live Dashboard</div>
+          </div>
+          <div class="pipe-arrow pipe-arrow-dim"></div>
+          <div class="pipe-node pipe-offline" id="pipeKafka">
+            <div class="pipe-name">Kafka</div>
+            <div class="pipe-sub">Optional</div>
+          </div>
+          <div class="pipe-arrow pipe-arrow-dim"></div>
+          <div class="pipe-node pipe-offline" id="pipeSpark">
+            <div class="pipe-name">Spark</div>
+            <div class="pipe-sub">Optional</div>
+          </div>
         </div>
       </div>
 
-      <!-- Real-Time Alert Audit Log -->
-      <div class="glass-panel" style="padding: 1.25rem;">
-        <div class="panel-header">
+      <!-- Operator Controls -->
+      <div class="panel controls-panel">
+        <div class="panel-head">
           <div class="panel-title">
-            <svg width="20" height="20" fill="none" stroke="#f43f5e" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
-            <span>LIVE ANOMALY & FAULT AUDIT FEED</span>
+            <svg class="panel-icon icon-amber" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+            Operator Controls
           </div>
-          <span class="badge badge-sev-critical">High-Priority Alerts</span>
         </div>
 
-        <div class="alert-table-wrap">
-          <table class="alert-table">
+        <div class="controls-grid">
+          <button class="ctrl-btn ctrl-btn-start" id="btnStartEngine" aria-label="Start stream engine">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Start Stream
+          </button>
+          <button class="ctrl-btn ctrl-btn-stop" id="btnStopEngine" aria-label="Stop stream engine">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>
+            Stop Stream
+          </button>
+          <button class="ctrl-btn ctrl-btn-restart" id="btnRestartEngine" aria-label="Restart stream engine">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+            Restart
+          </button>
+          <button class="ctrl-btn ctrl-btn-reset" id="btnResetFault" aria-label="Reset fault to normal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            Reset Fault
+          </button>
+        </div>
+
+        <div class="ctrl-log" id="ctrlLog" aria-live="polite">
+          <div class="ctrl-log-empty">— Control actions will appear here —</div>
+        </div>
+
+        <div class="ctrl-note">
+          <strong>Note:</strong> Stopping the stream engine pauses data generation and ML inference. The dashboard and control API remain available. Restarting resumes from current state.
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========================================================= -->
+    <!-- ROW 5: ANOMALY FEED + BENCHMARK METRICS -->
+    <!-- ========================================================= -->
+    <section class="feed-benchmark-row" aria-label="Anomaly feed and benchmark metrics">
+
+      <!-- Live Anomaly Feed -->
+      <div class="panel alerts-panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <svg class="panel-icon icon-red" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
+            Live Anomaly &amp; Fault Audit Feed
+          </div>
+          <span class="tag tag-red" id="alertCountBadge">0 alerts</span>
+        </div>
+
+        <div class="alert-table-wrap" role="region" aria-label="Alert history">
+          <table class="alert-table" aria-label="Anomaly audit log">
             <thead>
               <tr>
-                <th>TIMESTAMP</th>
-                <th>FAULT TYPE</th>
-                <th>SEVERITY</th>
-                <th>DELAY</th>
-                <th>HEALTH</th>
+                <th scope="col">Timestamp</th>
+                <th scope="col">Fault Type</th>
+                <th scope="col">Severity</th>
+                <th scope="col">Delay</th>
+                <th scope="col">CHI</th>
               </tr>
             </thead>
             <tbody id="alertTableBody">
-              <tr>
-                <td colspan="5" style="text-align: center; color: var(--text-dim); padding: 1.5rem;">
-                  Normal operating parameters verified. Listening for streaming anomalies...
+              <tr id="alertEmptyRow">
+                <td colspan="5" class="alert-empty">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  <span>Normal operating parameters verified. Listening for anomalies…</span>
                 </td>
               </tr>
             </tbody>
@@ -369,13 +454,60 @@
         </div>
       </div>
 
+      <!-- Benchmark / Evaluation Metrics -->
+      <div class="panel benchmark-panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <svg class="panel-icon icon-teal" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            Benchmark Metrics
+          </div>
+          <span class="tag tag-dim">Offline evaluation — not live</span>
+        </div>
+
+        <div class="benchmark-note">
+          These metrics are from an <strong>offline benchmark run</strong> on the synthetic dataset. They are <em>not</em> live measurements. See <code>data/model_benchmark_results.json</code>.
+        </div>
+
+        <table class="bench-table" id="benchTable" aria-label="Model benchmark comparison">
+          <thead>
+            <tr>
+              <th scope="col">Model</th>
+              <th scope="col">Accuracy</th>
+              <th scope="col">F1</th>
+              <th scope="col">Latency</th>
+              <th scope="col">Features</th>
+            </tr>
+          </thead>
+          <tbody id="benchTableBody">
+            <tr>
+              <td colspan="5" style="text-align:center;color:var(--text-dim);padding:1rem">Loading benchmark data…</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="paper-ref">
+          Paper reported: <strong>99.71% accuracy</strong>, <strong>4.80 ms</strong> delay
+          (Ranpariya &amp; Sharma, <em>Journal of Simulation</em>, 2025,
+          <a href="https://doi.org/10.1080/17477778.2025.2453725" target="_blank" rel="noopener" class="ref-link">DOI:10.1080/17477778.2025.2453725</a>).
+          Treat as external reference, not reproduced result.
+        </div>
+      </div>
+
     </section>
 
   </main>
 
-  <!-- Scripts -->
-  <script src="/static/js/twin_visualizer.js?v=5"></script>
-  <script src="/static/js/charts.js?v=5"></script>
-  <script src="/static/js/app.js?v=5"></script>
+  <footer class="app-footer">
+    <span>IOE413 Real-Time Digital Twin Anomaly Detection — Team 12</span>
+    <span class="sep">|</span>
+    <span>Amit Kumar (2023BCS0210) · Kartik P (2023BCD0051) · Rohit Pratap Singh (2023BCS0138) · Mohammed Sirajudheen (2023BCS0132)</span>
+    <span class="sep">|</span>
+    <span class="text-dim">Simulated telemetry — not connected to real industrial hardware</span>
+  </footer>
+
+  <!-- Scripts — load order matters: visualizer → charts → app -->
+  <script src="/static/js/twin_visualizer.js?v=7"></script>
+  <script src="/static/js/charts.js?v=7"></script>
+  <script src="/static/js/app.js?v=7"></script>
 </body>
 </html>

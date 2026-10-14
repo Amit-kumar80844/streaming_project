@@ -31,6 +31,7 @@ def create_spark_streaming_pipeline():
         .master("local[*]") \
         .config("spark.streaming.stopGracefullyOnShutdown", "true") \
         .config("spark.sql.shuffle.partitions", "2") \
+        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0") \
         .getOrCreate()
 
     spark.sparkContext.setLogLevel("WARN")

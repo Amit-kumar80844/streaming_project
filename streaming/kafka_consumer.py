@@ -39,7 +39,8 @@ class IIoTKafkaConsumer:
                 auto_offset_reset="latest",
                 enable_auto_commit=True,
                 value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-                group_id="iiot-digital-twin-cg"
+                group_id="iiot-digital-twin-cg",
+                consumer_timeout_ms=5000
             )
             logger.info(f"Subscribed to topic '{self.topic}' at {self.bootstrap_servers}")
             self.is_running = True

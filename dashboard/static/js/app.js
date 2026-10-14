@@ -1,266 +1,607 @@
 /**
- * Main Application Controller for Real-Time Digital Twin Live Dashboard.
- * IOE413 Streaming & Data Analytics | Team 12 (Rohit Pratap Singh)
+ * Digital Twin Operations Console — Main Application Controller
+ * IOE413 Streaming & Data Analytics | Team 12
+ *
+ * Responsibilities:
+ *  - WebSocket connection with exponential-backoff reconnect
+ *  - Real-time telemetry rendering (no fake/hardcoded values)
+ *  - Service lifecycle controls (Start/Stop/Restart)
+ *  - Fault injection wired to real backend API
+ *  - Benchmark data fetch and display with provenance labels
+ *  - Alert feed with stable IDs and empty state
  */
 
-function initApp() {
-  console.log('[App] Initializing Digital Twin Live Dashboard...');
-  
-  // 1. Initialize Sub-modules with error resilience
+(function initApp() {
+  'use strict';
+
+  // ------------------------------------------------------------------
+  // Sub-module references (loaded before this script)
+  // ------------------------------------------------------------------
   let twinVisualizer = null;
-  let chartsManager = null;
-  try {
-    twinVisualizer = new DigitalTwinVisualizer('twinCanvas');
-  } catch (e) {
-    console.error('[App] Error initializing twinVisualizer:', e);
+  let chartsManager  = null;
+
+  try { twinVisualizer = new DigitalTwinVisualizer('twinCanvas'); }
+  catch (e) { console.error('[App] twinVisualizer init failed:', e); }
+
+  try { chartsManager = new TelemetryChartsManager(); }
+  catch (e) { console.error('[App] chartsManager init failed:', e); }
+
+  // ------------------------------------------------------------------
+  // DOM cache
+  // ------------------------------------------------------------------
+  const $ = id => document.getElementById(id);
+
+  const dom = {
+    // Header
+    wsDot:          $('wsDot'),
+    wsLabel:        $('wsLabel'),
+    engineDot:      $('engineDot'),
+    engineLabel:    $('engineLabel'),
+    packetCount:    $('packetCount'),
+    reconnectBanner:$('reconnectBanner'),
+    reconnectMsg:   $('reconnectMsg'),
+
+    // KPI strip
+    kpiCHI:         $('kpiCHI'),
+    kpiCHIStatus:   $('kpiCHIStatus'),
+    kpiCHIBar:      $('kpiCHIBar'),
+    kpiCardCHI:     $('kpiCardCHI'),
+    kpiCondition:   $('kpiCondition'),
+    kpiConfText:    $('kpiConfText'),
+    kpiAnomalyCount:$('kpiAnomalyCount'),
+    kpiLastAlert:   $('kpiLastAlert'),
+    kpiDelay:       $('kpiDelay'),
+    kpiDelaySub:    $('kpiDelaySub'),
+    kpiRate:        $('kpiRate'),
+    kpiWindow:      $('kpiWindow'),
+
+    // Twin panel
+    twinChipRPM:    $('twinChipRPM'),
+    twinChipLoad:   $('twinChipLoad'),
+    twinChipFault:  $('twinChipFault'),
+    sensorTemp:     $('sensorTemp'),
+    sensorVib:      $('sensorVib'),
+    sensorCurr:     $('sensorCurr'),
+    sensorPress:    $('sensorPress'),
+    twinTemp:       $('twinTemp'),
+    twinVib:        $('twinVib'),
+    twinCurr:       $('twinCurr'),
+    twinPress:      $('twinPress'),
+    resVib:         $('resVib'),
+    resTemp:        $('resTemp'),
+    resPress:       $('resPress'),
+    resAcoustic:    $('resAcoustic'),
+
+    // Inference panel
+    stage1Box:      $('stage1Box'),
+    stage1Result:   $('stage1Result'),
+    stage1Delay:    $('stage1Delay'),
+    stage2Box:      $('stage2Box'),
+    stage2Result:   $('stage2Result'),
+    stage2Delay:    $('stage2Delay'),
+    kpiFaultName:   $('kpiFaultName'),
+    kpiConfidence:  $('kpiConfidence'),
+    kpiSeverity:    $('kpiSeverity'),
+    kpiTotalDelay:  $('kpiTotalDelay'),
+
+    // Fault injection
+    faultIntensity: $('faultIntensity'),
+    faultIntensityVal: $('faultIntensityVal'),
+    faultFeedback:  $('faultFeedback'),
+
+    // Service / controls
+    serviceList:    $('serviceList'),
+    btnStartEngine: $('btnStartEngine'),
+    btnStopEngine:  $('btnStopEngine'),
+    btnRestartEngine: $('btnRestartEngine'),
+    btnResetFault:  $('btnResetFault'),
+    ctrlLog:        $('ctrlLog'),
+
+    // Alerts
+    alertTableBody: $('alertTableBody'),
+    alertEmptyRow:  $('alertEmptyRow'),
+    alertCountBadge:$('alertCountBadge'),
+
+    // Benchmark
+    benchTableBody: $('benchTableBody'),
+  };
+
+  // ------------------------------------------------------------------
+  // State
+  // ------------------------------------------------------------------
+  let ws            = null;
+  let wsRetryCount  = 0;
+  let wsRetryTimer  = null;
+  let isDisposed    = false;
+  let alertCount    = 0;
+  let activeFault   = 0;
+  let engineRunning = true;
+  let lastPacketTime = 0;
+  let staleSentinel  = null;
+
+  // ------------------------------------------------------------------
+  // Utility
+  // ------------------------------------------------------------------
+  function setText(el, val) { if (el) el.textContent = val; }
+  function setClass(el, cls) { if (el) el.className = cls; }
+
+  function appendCtrlLog(msg, type = 'info') {
+    if (!dom.ctrlLog) return;
+    const el = document.createElement('div');
+    el.className = `ctrl-log-line ctrl-log-${type}`;
+    el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    dom.ctrlLog.appendChild(el);
+    dom.ctrlLog.scrollTop = dom.ctrlLog.scrollHeight;
+    // Remove initial "empty" placeholder
+    const empty = dom.ctrlLog.querySelector('.ctrl-log-empty');
+    if (empty) empty.remove();
   }
 
-  try {
-    chartsManager = new TelemetryChartsManager();
-  } catch (e) {
-    console.error('[App] Error initializing chartsManager:', e);
+  function showFaultFeedback(msg, type = 'ok') {
+    if (!dom.faultFeedback) return;
+    dom.faultFeedback.textContent = msg;
+    dom.faultFeedback.className = `fault-feedback ${type}`;
+    dom.faultFeedback.hidden = false;
+    clearTimeout(dom.faultFeedback._timer);
+    dom.faultFeedback._timer = setTimeout(() => {
+      if (dom.faultFeedback) dom.faultFeedback.hidden = true;
+    }, 3500);
   }
 
-  // 2. DOM Elements
-  const elStreamPill = document.getElementById('streamStatusPill');
-  const elPacketCount = document.getElementById('packetCount');
-  const elHealthVal = document.getElementById('kpiHealthVal');
-  const elHealthStatus = document.getElementById('kpiHealthStatus');
-  const elDelayVal = document.getElementById('kpiDelayVal');
-  const elDelaySub = document.getElementById('kpiDelaySub');
-  const elStage1Badge = document.getElementById('stage1Badge');
-  const elStage2Badge = document.getElementById('stage2Badge');
-  const elFaultName = document.getElementById('kpiFaultName');
-  const elConfidence = document.getElementById('kpiConfidence');
-  const elThroughput = document.getElementById('kpiThroughput');
-  const elSparkWindow = document.getElementById('kpiSparkWindow');
-  const elAlertTableBody = document.getElementById('alertTableBody');
-  const elResidualVib = document.getElementById('resVib');
-  const elResidualTemp = document.getElementById('resTemp');
-  const elResidualPress = document.getElementById('resPress');
-  const elResidualAcoustic = document.getElementById('resAcoustic');
-  const elIntensitySlider = document.getElementById('faultIntensity');
-  const elIntensityVal = document.getElementById('faultIntensityVal');
+  // ------------------------------------------------------------------
+  // WebSocket — exponential backoff reconnect
+  // ------------------------------------------------------------------
+  function wsConnect() {
+    if (isDisposed) return;
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${protocol}//${location.host}/ws/stream`;
 
-  let packetCounter = 0;
-  let activeFaultCode = 0;
-
-  // 3. Setup WebSocket Connection with Auto-reconnect
-  let ws = null;
-  function connectWebSocket() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/stream`;
-
-    console.log('[WebSocket] Connecting to:', wsUrl);
     try {
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        console.log('[WebSocket] Connected successfully!');
-        if (elStreamPill) {
-          elStreamPill.innerHTML = '<span class="pulse-dot"></span><span>STREAM LIVE @ 10 Hz</span>';
-          elStreamPill.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-        }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const packet = JSON.parse(event.data);
-          handleIncomingTelemetry(packet);
-        } catch (err) {
-          console.error('[WebSocket] Parse error:', err);
-        }
-      };
-
-      ws.onclose = () => {
-        console.warn('[WebSocket] Closed. Retrying in 2s...');
-        setTimeout(connectWebSocket, 2000);
-      };
-
-      ws.onerror = (err) => {
-        console.error('[WebSocket] Error encountered:', err);
-      };
+      ws = new WebSocket(url);
     } catch (e) {
-      console.error('[WebSocket] Setup exception:', e);
+      console.error('[WS] Construction error:', e);
+      scheduleReconnect();
+      return;
     }
-  }
 
-  // Fallback high-frequency telemetry polling (10 Hz)
-  setInterval(async () => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
+    ws.onopen = () => {
+      wsRetryCount = 0;
+      setWsStatus('healthy');
+      if (dom.reconnectBanner) dom.reconnectBanner.hidden = true;
+      appendCtrlLog('WebSocket connected', 'ok');
+    };
+
+    ws.onmessage = evt => {
       try {
-        const resp = await fetch('/api/status');
-        const data = await resp.json();
-        if (data && data.latest_packet && data.latest_packet.packet_id) {
-          handleIncomingTelemetry(data.latest_packet);
-        }
-      } catch (e) {}
-    }
-  }, 100);
+        const packet = JSON.parse(evt.data);
+        handleTelemetry(packet);
+      } catch (e) {
+        console.error('[WS] Parse error:', e);
+      }
+    };
 
-  // 4. Handle Real-Time Telemetry Packets
-  function handleIncomingTelemetry(packet) {
-    if (!packet) return;
-    packetCounter++;
-    if (elPacketCount) elPacketCount.textContent = packet.packet_id || packetCounter;
+    ws.onclose = () => {
+      setWsStatus('offline');
+      scheduleReconnect();
+    };
 
-    // A. Update Canvas & Charts
+    ws.onerror = err => {
+      console.error('[WS] Error:', err);
+    };
+  }
+
+  function scheduleReconnect() {
+    if (isDisposed) return;
+    if (wsRetryTimer) clearTimeout(wsRetryTimer);
+    const delay = Math.min(1000 * Math.pow(1.6, wsRetryCount), 15000);
+    wsRetryCount++;
+    if (dom.reconnectBanner) dom.reconnectBanner.hidden = false;
+    setText(dom.reconnectMsg, `WebSocket disconnected — reconnecting in ${(delay / 1000).toFixed(1)} s…`);
+    wsRetryTimer = setTimeout(wsConnect, delay);
+  }
+
+  function setWsStatus(state) {
+    const classes = { healthy: 'status-dot dot-healthy', degraded: 'status-dot dot-degraded', offline: 'status-dot dot-offline' };
+    const labels  = { healthy: 'Stream Live', degraded: 'Degraded', offline: 'Disconnected' };
+    setClass(dom.wsDot, classes[state] || 'status-dot dot-offline');
+    setText(dom.wsLabel, labels[state] || 'Unknown');
+  }
+
+  // HTTP fallback polling (100 ms) when WebSocket is not open
+  setInterval(async () => {
+    if (ws && ws.readyState === WebSocket.OPEN) return;
     try {
-      if (twinVisualizer) twinVisualizer.updateTelemetry(packet);
-      if (chartsManager) chartsManager.update(packet);
-    } catch (e) {
-      console.error('[App] Error updating visualizer/charts:', e);
+      const r = await fetch('/api/status');
+      const d = await r.json();
+      if (d && d.latest_packet && d.latest_packet.packet_id) handleTelemetry(d.latest_packet);
+      updateEngineStatus(d.stream_running);
+    } catch (_) {}
+  }, 200);
+
+  // Stale-data detector — if no packet for 3 s, show degraded state
+  function resetStaleDetector() {
+    lastPacketTime = Date.now();
+    clearTimeout(staleSentinel);
+    staleSentinel = setTimeout(() => {
+      if (Date.now() - lastPacketTime > 3000) setWsStatus('degraded');
+    }, 3500);
+  }
+
+  // ------------------------------------------------------------------
+  // Telemetry handler
+  // ------------------------------------------------------------------
+  function handleTelemetry(packet) {
+    if (!packet) return;
+    resetStaleDetector();
+
+    setText(dom.packetCount, packet.packet_id ?? '');
+
+    // Sub-module update
+    try { if (twinVisualizer) twinVisualizer.updateTelemetry(packet); } catch (_) {}
+    try { if (chartsManager)  chartsManager.update(packet); } catch (_) {}
+
+    // --- Digital twin state ---
+    const dt  = packet.digital_twin || {};
+    const chi = typeof dt.composite_health_index === 'number' ? dt.composite_health_index : null;
+    const raw = packet.raw_telemetry || {};
+    const exp = dt.expected_state   || {};
+    const res = dt.residuals        || {};
+    const pred = packet.prediction  || {};
+    const win  = packet.window_aggregates || {};
+
+    // CHI KPI
+    if (chi !== null) {
+      setText(dom.kpiCHI, chi.toFixed(1));
+      setText(dom.kpiCHIStatus, dt.health_status || '');
+      if (dom.kpiCHIBar) {
+        dom.kpiCHIBar.style.width = `${chi}%`;
+        dom.kpiCHIBar.style.background = chi >= 85 ? 'var(--green)' : chi >= 60 ? 'var(--amber)' : 'var(--red)';
+      }
+      const card = dom.kpiCardCHI;
+      if (card) {
+        card.classList.toggle('state-warn', chi < 85 && chi >= 60);
+        card.classList.toggle('state-crit', chi < 60);
+      }
     }
 
-    // B. Digital Twin State & Health Index
-    const dt = packet.digital_twin || {};
-    const health = dt.composite_health_index || 100;
-    if (elHealthVal) elHealthVal.textContent = `${health.toFixed(1)}%`;
-    if (elHealthStatus) {
-      elHealthStatus.textContent = dt.health_status || 'Optimal';
-      elHealthStatus.style.color = dt.health_color || '#10b981';
+    // Condition KPI
+    const cond = dom.kpiCondition;
+    if (cond && pred.fault_name) {
+      cond.textContent = pred.is_anomaly ? pred.fault_name : 'Normal Operation';
+      cond.className = 'kpi-badge-lg' +
+        (pred.severity_level === 'CRITICAL' ? ' state-crit' :
+         pred.severity_level === 'WARNING'  ? ' state-warn' : '');
+    }
+    setText(dom.kpiConfText, pred.confidence_percent != null ? `Confidence: ${pred.confidence_percent.toFixed(1)}%` : '');
+
+    // Anomaly count KPI
+    if (pred.is_anomaly) {
+      alertCount++;
+      setText(dom.kpiAnomalyCount, alertCount);
+      setText(dom.kpiLastAlert, `Last: ${pred.fault_name || 'anomaly'}`);
+      if (dom.alertCountBadge) dom.alertCountBadge.textContent = `${alertCount} alert${alertCount !== 1 ? 's' : ''}`;
+      appendAlertRow(pred, chi);
     }
 
-    // Residual mini stats
-    const res = dt.residuals || {};
-    if (elResidualVib) elResidualVib.textContent = `${(res.vibration_rms || 0).toFixed(3)} mm/s`;
-    if (elResidualTemp) elResidualTemp.textContent = `${(res.temperature || 0).toFixed(2)} °C`;
-    if (elResidualPress) elResidualPress.textContent = `${(res.pressure_bar || 0).toFixed(3)} bar`;
-    if (elResidualAcoustic) elResidualAcoustic.textContent = `${(res.acoustic_db || 0).toFixed(1)} dB`;
-
-    // C. Two-Stage Ensemble Decision & Latency
-    const pred = packet.prediction || {};
-    const delay = pred.estimation_delay_ms || 4.8;
-    if (elDelayVal) elDelayVal.textContent = `${delay.toFixed(2)}`;
-    if (elDelaySub) {
-      elDelaySub.innerHTML = delay <= 5.0 
-        ? '<span style="color:#10b981;">✔ Target Met (&lt; 4.8 ms)</span>' 
-        : '<span style="color:#f59e0b;">Within tolerance</span>';
+    // Delay KPI
+    const delay = pred.estimation_delay_ms;
+    if (delay != null) {
+      setText(dom.kpiDelay, delay.toFixed(2));
+      setText(dom.kpiDelaySub, delay <= 5.5 ? '✓ Within target (< ~5 ms)' : 'Exceeds target');
     }
 
-    // Stage 1 & Stage 2 badges
+    // Rate KPI
+    if (win.window_size_samples) {
+      setText(dom.kpiRate, ((win.window_size_samples / 5) || 10).toFixed(1));
+    }
+    if (win.rolling_max_vibration != null) {
+      setText(dom.kpiWindow, `Roll. max vib: ${win.rolling_max_vibration.toFixed(2)} mm/s`);
+    }
+
+    // Twin readings
+    setText(dom.sensorTemp,  raw.temperature    != null ? `${raw.temperature.toFixed(1)} °C`    : '—');
+    setText(dom.sensorVib,   raw.vibration_rms  != null ? `${raw.vibration_rms.toFixed(3)} mm/s` : '—');
+    setText(dom.sensorCurr,  raw.current_amp    != null ? `${raw.current_amp.toFixed(2)} A`      : '—');
+    setText(dom.sensorPress, raw.pressure_bar   != null ? `${raw.pressure_bar.toFixed(3)} bar`   : '—');
+    setText(dom.twinTemp,    exp.temperature    != null ? `${exp.temperature.toFixed(1)} °C`    : '—');
+    setText(dom.twinVib,     exp.vibration_rms  != null ? `${exp.vibration_rms.toFixed(3)} mm/s` : '—');
+    setText(dom.twinCurr,    exp.current_amp    != null ? `${exp.current_amp.toFixed(2)} A`      : '—');
+    setText(dom.twinPress,   exp.pressure_bar   != null ? `${exp.pressure_bar.toFixed(3)} bar`   : '—');
+
+    // Residuals
+    setText(dom.resVib,      res.vibration_rms  != null ? `${res.vibration_rms.toFixed(4)}`  : '—');
+    setText(dom.resTemp,     res.temperature    != null ? `${res.temperature.toFixed(3)} °C` : '—');
+    setText(dom.resPress,    res.pressure_bar   != null ? `${res.pressure_bar.toFixed(4)}`   : '—');
+    setText(dom.resAcoustic, res.acoustic_db    != null ? `${res.acoustic_db.toFixed(2)} dB` : '—');
+
+    // Twin overlay chips
+    setText(dom.twinChipRPM,  raw.rpm    != null ? `RPM: ${raw.rpm.toFixed(0)}`   : 'RPM: —');
+    setText(dom.twinChipLoad, raw.current_amp != null
+      ? `Load: ${Math.min(100, Math.max(0, ((raw.current_amp - 10) / 18.5) * 100)).toFixed(0)}%` : 'Load: —');
+
+    if (dom.twinChipFault) {
+      dom.twinChipFault.textContent = pred.is_anomaly ? (pred.fault_name || 'Anomaly') : 'Normal';
+      dom.twinChipFault.className = 'twin-chip twin-chip-right' +
+        (pred.severity_level === 'CRITICAL' ? ' state-crit' :
+         pred.severity_level === 'WARNING'  ? ' state-warn' : '');
+    }
+
+    // Two-stage inference
     const s1 = pred.stage1 || {};
     const s2 = pred.stage2 || {};
 
-    if (elStage1Badge) {
-      if (s1.flagged_anomaly) {
-        elStage1Badge.className = 'badge badge-sev-critical';
-        elStage1Badge.textContent = `S1: ANOMALY (${(s1.delay_ms || 1.4).toFixed(1)}ms)`;
-      } else {
-        elStage1Badge.className = 'badge badge-team';
-        elStage1Badge.textContent = `S1: NORMAL (${(s1.delay_ms || 1.2).toFixed(1)}ms)`;
-      }
+    if (dom.stage1Box) {
+      dom.stage1Box.className = 'stage-box' + (s1.flagged_anomaly ? ' state-anomaly' : '');
     }
+    setText(dom.stage1Result, s1.flagged_anomaly ? `ANOMALY (p=${(s1.anomaly_probability || 0).toFixed(3)})` : 'NORMAL');
+    setText(dom.stage1Delay,  `delay: ${(s1.delay_ms || 0).toFixed(2)} ms`);
 
-    if (elStage2Badge) {
-      if (s2.invoked) {
-        elStage2Badge.className = 'badge badge-sev-critical';
-        elStage2Badge.textContent = `S2: DIAGNOSED (${(s2.delay_ms || 3.1).toFixed(1)}ms)`;
-      } else {
-        elStage2Badge.className = 'badge badge-paper';
-        elStage2Badge.textContent = 'S2: BYPASSED (FAST-PATH)';
-      }
+    if (dom.stage2Box) {
+      dom.stage2Box.className = 'stage-box' + (s2.invoked ? ' state-anomaly' : '');
     }
+    setText(dom.stage2Result, s2.invoked ? `DIAGNOSED` : 'BYPASSED (fast-path)');
+    setText(dom.stage2Delay,  `delay: ${(s2.delay_ms || 0).toFixed(2)} ms`);
 
-    if (elFaultName) {
-      elFaultName.textContent = pred.fault_name || 'Normal Operation';
-      elFaultName.style.color = pred.is_anomaly ? '#f43f5e' : '#ffffff';
+    if (dom.kpiFaultName) {
+      dom.kpiFaultName.textContent = pred.fault_name || 'Normal Operation';
+      dom.kpiFaultName.className = 'fd-name' + (pred.is_anomaly ? ' state-crit' : '');
     }
+    setText(dom.kpiConfidence, pred.confidence_percent != null ? `${pred.confidence_percent.toFixed(1)}%` : '—');
+    setText(dom.kpiSeverity,   pred.severity_level || '—');
+    setText(dom.kpiTotalDelay, delay != null ? `${delay.toFixed(2)} ms` : '—');
 
-    if (elConfidence) {
-      elConfidence.textContent = `${(pred.confidence_percent || 99.7).toFixed(1)}% Confidence`;
-    }
-
-    // D. Sliding Window Aggregates (Spark equivalent)
-    const win = packet.window_aggregates || {};
-    if (elThroughput) {
-      elThroughput.textContent = `${win.window_size_samples ? (win.window_size_samples / 5).toFixed(1) : 10.0} Hz`;
-    }
-    if (elSparkWindow) {
-      elSparkWindow.textContent = `5s Window (Rolling Max Vib: ${(win.rolling_max_vibration || 1.8).toFixed(2)} mm/s)`;
-    }
-
-    // E. Alert Table Trigger
-    if (pred.is_anomaly) {
-      addAlertTableRow({
-        time: new Date().toLocaleTimeString(),
-        fault: pred.fault_name,
-        severity: pred.severity_level || 'CRITICAL',
-        delay: `${delay.toFixed(2)} ms`,
-        chi: `${health.toFixed(1)}%`
-      });
-    }
+    updateEngineStatus(true);
   }
 
-  function addAlertTableRow(alert) {
-    if (!elAlertTableBody) return;
+  // ------------------------------------------------------------------
+  // Alert feed
+  // ------------------------------------------------------------------
+  let alertIds = new Set();
+
+  function appendAlertRow(pred, chi) {
+    const id = `ALT-${Date.now()}-${pred.fault_code}`;
+    if (!dom.alertTableBody) return;
+
+    // Remove empty-state row if present
+    if (dom.alertEmptyRow && dom.alertEmptyRow.parentNode) {
+      dom.alertEmptyRow.remove();
+    }
+
     const tr = document.createElement('tr');
-    const sevBadge = alert.severity === 'CRITICAL' 
-      ? '<span class="badge badge-sev-critical">CRITICAL</span>'
-      : '<span class="badge badge-sev-warning">WARNING</span>';
-      
+    tr.dataset.alertId = id;
+    const sevClass = pred.severity_level === 'CRITICAL' ? 'sev-critical' : pred.severity_level === 'WARNING' ? 'sev-warning' : 'sev-normal';
     tr.innerHTML = `
-      <td>${alert.time}</td>
-      <td style="color:#f87171;font-weight:600;">${alert.fault}</td>
-      <td>${sevBadge}</td>
-      <td>${alert.delay}</td>
-      <td style="color:#38bdf8;">${alert.chi}</td>
+      <td>${new Date().toLocaleTimeString()}</td>
+      <td style="font-weight:600;color:var(--red)">${escHtml(pred.fault_name || '?')}</td>
+      <td class="${sevClass}">${escHtml(pred.severity_level || '—')}</td>
+      <td>${pred.estimation_delay_ms != null ? pred.estimation_delay_ms.toFixed(2) + ' ms' : '—'}</td>
+      <td style="color:var(--cyan);font-family:var(--mono)">${chi != null ? chi.toFixed(1) + '%' : '—'}</td>
     `;
+    dom.alertTableBody.insertBefore(tr, dom.alertTableBody.firstChild);
 
-    elAlertTableBody.insertBefore(tr, elAlertTableBody.firstChild);
-    while (elAlertTableBody.children.length > 8) {
-      elAlertTableBody.removeChild(elAlertTableBody.lastChild);
+    // Keep max 15 rows
+    while (dom.alertTableBody.children.length > 15) {
+      dom.alertTableBody.removeChild(dom.alertTableBody.lastChild);
     }
   }
 
-  // 5. Fault Injection Buttons
-  const faultButtons = document.querySelectorAll('.fault-btn');
-  faultButtons.forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const faultCode = parseInt(btn.dataset.fault, 10);
-      const intensity = elIntensitySlider ? parseFloat(elIntensitySlider.value) / 100.0 : 1.0;
-      
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ------------------------------------------------------------------
+  // Service status polling (every 3 s)
+  // ------------------------------------------------------------------
+  async function pollServices() {
+    try {
+      const r = await fetch('/api/services');
+      const d = await r.json();
+      renderServiceList(d.services || []);
+    } catch (_) {}
+  }
+
+  function renderServiceList(services) {
+    if (!dom.serviceList) return;
+    dom.serviceList.innerHTML = '';
+    services.forEach(svc => {
+      const dot = stateToClass(svc.state);
+      const row = document.createElement('div');
+      row.className = 'service-row';
+      row.innerHTML = `
+        <div class="service-row-name">
+          <span class="status-dot ${dot}"></span>
+          ${escHtml(svc.name)}
+          ${svc.note ? `<span class="text-dim" style="font-size:0.7rem">${escHtml(svc.note)}</span>` : ''}
+        </div>
+        <span class="service-row-state" style="color:${stateToColor(svc.state)}">${escHtml(svc.state)}</span>
+      `;
+      dom.serviceList.appendChild(row);
+    });
+  }
+
+  function stateToClass(state) {
+    if (state === 'healthy') return 'dot-healthy';
+    if (state === 'degraded' || state === 'starting') return 'dot-degraded';
+    if (state === 'failed' || state === 'stopped') return 'dot-error';
+    return 'dot-offline';
+  }
+  function stateToColor(state) {
+    if (state === 'healthy' || state === 'restarted') return 'var(--green)';
+    if (state === 'degraded' || state === 'starting') return 'var(--amber)';
+    if (state === 'failed') return 'var(--red)';
+    if (state === 'stopped') return 'var(--red)';
+    return 'var(--text-muted)';
+  }
+
+  function updateEngineStatus(running) {
+    engineRunning = running;
+    const s = running ? 'healthy' : 'stopped';
+    setClass(dom.engineDot, `status-dot ${stateToClass(s)}`);
+    setText(dom.engineLabel, running ? 'Engine Running' : 'Engine Stopped');
+    if (dom.btnStartEngine) dom.btnStartEngine.disabled = running;
+    if (dom.btnStopEngine)  dom.btnStopEngine.disabled  = !running;
+  }
+
+  setInterval(pollServices, 3000);
+  pollServices();
+
+  // ------------------------------------------------------------------
+  // Operator lifecycle controls
+  // ------------------------------------------------------------------
+  async function serviceAction(id, action) {
+    const btns = [dom.btnStartEngine, dom.btnStopEngine, dom.btnRestartEngine, dom.btnResetFault];
+    btns.forEach(b => { if (b) b.disabled = true; });
+    appendCtrlLog(`Requesting ${action} for ${id}…`, 'info');
+    try {
+      const r = await fetch(`/api/services/${id}/${action}`, { method: 'POST' });
+      const d = await r.json();
+      appendCtrlLog(`${action} → ${d.status}: ${d.message}`, r.ok ? 'ok' : 'err');
+      await pollServices();
+    } catch (e) {
+      appendCtrlLog(`Error: ${e.message}`, 'err');
+    } finally {
+      // Re-enable based on actual state
+      const r2 = await fetch('/api/services').catch(() => null);
+      if (r2) {
+        const d2 = await r2.json().catch(() => ({}));
+        const eng = (d2.services || []).find(s => s.id === 'stream-engine');
+        if (eng) updateEngineStatus(eng.state === 'healthy');
+      }
+      if (dom.btnRestartEngine) dom.btnRestartEngine.disabled = false;
+      if (dom.btnResetFault)    dom.btnResetFault.disabled    = false;
+    }
+  }
+
+  if (dom.btnStartEngine)   dom.btnStartEngine.addEventListener('click',   () => serviceAction('stream-engine', 'start'));
+  if (dom.btnStopEngine)    dom.btnStopEngine.addEventListener('click',    () => serviceAction('stream-engine', 'stop'));
+  if (dom.btnRestartEngine) dom.btnRestartEngine.addEventListener('click', () => serviceAction('stream-engine', 'restart'));
+
+  if (dom.btnResetFault) {
+    dom.btnResetFault.addEventListener('click', async () => {
+      dom.btnResetFault.disabled = true;
       try {
-        const resp = await fetch('/api/fault/inject', {
+        const r = await fetch('/api/fault/reset', { method: 'POST' });
+        const d = await r.json();
+        showFaultFeedback('Fault reset — normal operation restored', 'ok');
+        appendCtrlLog('Fault reset to Normal', 'ok');
+        // Update button states
+        document.querySelectorAll('.fault-btn').forEach(b => {
+          b.classList.remove('active');
+          b.setAttribute('aria-pressed', 'false');
+        });
+        const btn0 = $('faultBtn0');
+        if (btn0) { btn0.classList.add('active'); btn0.setAttribute('aria-pressed', 'true'); }
+        activeFault = 0;
+      } catch (e) {
+        appendCtrlLog(`Reset error: ${e.message}`, 'err');
+      } finally {
+        dom.btnResetFault.disabled = false;
+      }
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Fault injection buttons
+  // ------------------------------------------------------------------
+  document.querySelectorAll('.fault-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const code = parseInt(btn.dataset.fault, 10);
+      const intensity = dom.faultIntensity ? parseFloat(dom.faultIntensity.value) / 100 : 1.0;
+
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/fault/inject', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fault_code: faultCode, intensity: intensity })
+          body: JSON.stringify({ fault_code: code, intensity }),
         });
-        const res = await resp.json();
-        
-        // Update active button state
-        faultButtons.forEach(b => b.classList.remove('active'));
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+
+        document.querySelectorAll('.fault-btn').forEach(b => {
+          b.classList.remove('active');
+          b.setAttribute('aria-pressed', 'false');
+        });
         btn.classList.add('active');
-        activeFaultCode = faultCode;
-        console.log('[Fault Lab] Activated:', res);
-      } catch (err) {
-        console.error('[Fault Lab] Error injecting fault:', err);
+        btn.setAttribute('aria-pressed', 'true');
+        activeFault = code;
+
+        const faultNames = ['Normal','Bearing Fault','Stator Overheating','Rotor Imbalance','Cavitation','Sensor Drift'];
+        showFaultFeedback(code === 0
+          ? 'Fault cleared — normal operation restored'
+          : `Injected: ${faultNames[code] || 'fault'} at ${(intensity * 100).toFixed(0)}% severity`, 'ok');
+        appendCtrlLog(d.message || `Fault ${code} injected`, 'info');
+      } catch (e) {
+        showFaultFeedback(`Error injecting fault: ${e.message}`, 'err');
+        appendCtrlLog(`Fault inject error: ${e.message}`, 'err');
+      } finally {
+        btn.disabled = false;
       }
     });
   });
 
-  if (elIntensitySlider && elIntensityVal) {
-    elIntensitySlider.addEventListener('input', () => {
-      elIntensityVal.textContent = `${elIntensitySlider.value}%`;
+  if (dom.faultIntensity && dom.faultIntensityVal) {
+    dom.faultIntensity.addEventListener('input', () => {
+      dom.faultIntensityVal.textContent = `${dom.faultIntensity.value}%`;
     });
   }
 
-  // Bootstrap initial telemetry snapshot immediately
+  // ------------------------------------------------------------------
+  // Benchmark data
+  // ------------------------------------------------------------------
+  async function loadBenchmark() {
+    if (!dom.benchTableBody) return;
+    try {
+      const r = await fetch('/api/benchmark');
+      const d = await r.json();
+      if (!d.models) {
+        dom.benchTableBody.innerHTML = `<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:0.75rem">${escHtml(d.message || 'No benchmark data')}</td></tr>`;
+        return;
+      }
+      dom.benchTableBody.innerHTML = '';
+      let first = true;
+      for (const [key, m] of Object.entries(d.models)) {
+        const tr = document.createElement('tr');
+        if (first) { tr.className = 'bench-proposed'; first = false; }
+        tr.innerHTML = `
+          <td>${escHtml(m.name || key)}</td>
+          <td>${m.accuracy != null ? m.accuracy.toFixed(2) + '%' : '—'}</td>
+          <td>${m.f1_score != null ? m.f1_score.toFixed(2) + '%' : '—'}</td>
+          <td>${m.avg_delay_ms != null ? m.avg_delay_ms.toFixed(2) + ' ms' : '—'}</td>
+          <td>${escHtml(m.features_used || '—')}</td>
+        `;
+        dom.benchTableBody.appendChild(tr);
+      }
+    } catch (e) {
+      if (dom.benchTableBody) {
+        dom.benchTableBody.innerHTML = `<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:0.75rem">Failed to load benchmark data</td></tr>`;
+      }
+    }
+  }
+
+  loadBenchmark();
+
+  // ------------------------------------------------------------------
+  // Bootstrap: fetch initial snapshot then connect WebSocket
+  // ------------------------------------------------------------------
   fetch('/api/status')
     .then(r => r.json())
-    .then(data => {
-      if (data && data.latest_packet && Object.keys(data.latest_packet).length > 0) {
-        handleIncomingTelemetry(data.latest_packet);
+    .then(d => {
+      if (d && d.latest_packet && Object.keys(d.latest_packet).length > 0) {
+        handleTelemetry(d.latest_packet);
       }
+      updateEngineStatus(d.stream_running !== false);
     })
-    .catch(e => console.warn('Initial status fetch:', e));
+    .catch(() => {});
 
-  // Connect WebSocket on load
-  connectWebSocket();
-}
+  wsConnect();
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initApp);
-} else {
-  initApp();
-}
+  // Cleanup on page unload
+  window.addEventListener('beforeunload', () => {
+    isDisposed = true;
+    if (wsRetryTimer) clearTimeout(wsRetryTimer);
+    if (staleSentinel)  clearTimeout(staleSentinel);
+    if (ws) ws.close();
+  });
+
+})();

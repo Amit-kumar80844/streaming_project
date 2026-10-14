@@ -1,354 +1,272 @@
 /**
- * Digital Twin Canvas Visualizer for Industrial Motor-Pump Asset (TWIN-MTR-01).
- * High-performance 2D/isometric interactive canvas rendering with dynamic physics feedback:
- * - Rotor rotation speed dynamically driven by live telemetry RPM.
- * - Stator thermal gradient rendering based on core temperature.
- * - Bearing housing vibration displacement and harmonic pulse rings.
- * - Fluid pressure turbulence visualization in pump volute.
+ * Digital Twin Motor/Pump Visualizer
+ * Draws the asset using Canvas; animation driven by actual telemetry state.
+ * IOE413 Team 12
  */
-
-// Safe polyfill for CanvasRenderingContext2D.roundRect if not present
-if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
-  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r = 0) {
-    const radius = typeof r === 'number' ? r : 4;
-    this.rect(x, y, w, h);
-    return this;
-  };
-}
 
 class DigitalTwinVisualizer {
   constructor(canvasId) {
-    this.canvas = document.getElementById(canvasId);
-    if (!this.canvas) return;
-    this.ctx = this.canvas.getContext('2d');
-    
-    // Physics & state variables
-    this.rotationAngle = 0;
-    this.rpm = 1480;
-    this.temperature = 58;
-    this.vibRms = 1.6;
-    this.vibPeak = 2.4;
-    this.pressure = 4.2;
-    this.healthIndex = 100;
-    this.isAnomaly = false;
-    this.faultCode = 0;
-    
-    // Resize handling
-    this.resize();
-    window.addEventListener('resize', () => this.resize());
-    
-    // Start animation loop
-    this.lastFrameTime = performance.now();
-    this.animate = this.animate.bind(this);
-    requestAnimationFrame(this.animate);
-  }
-
-  resize() {
-    const rect = this.canvas.parentElement.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
-    this.ctx.scale(dpr, dpr);
-    this.width = rect.width;
-    this.height = rect.height;
+    this.canvas  = document.getElementById(canvasId);
+    if (!this.canvas) throw new Error(`Canvas #${canvasId} not found`);
+    this.ctx     = this.canvas.getContext('2d');
+    this._state  = {
+      rpm: 1480,
+      health: 100,
+      temperature: 62,
+      vibration: 1.8,
+      faultCode: 0,
+      isAnomaly: false,
+      severity: 'NORMAL',
+    };
+    this._angle  = 0;
+    this._rafId  = null;
+    this._resize();
+    window.addEventListener('resize', () => this._resize());
+    this._loop();
   }
 
   updateTelemetry(packet) {
-    const raw = packet.raw_telemetry || {};
-    const dt = packet.digital_twin || {};
-    const pred = packet.prediction || {};
-    
-    this.rpm = raw.rpm || 1480;
-    this.temperature = raw.temperature || 58;
-    this.vibRms = raw.vibration_rms || 1.6;
-    this.vibPeak = raw.vibration_peak || 2.4;
-    this.pressure = raw.pressure_bar || 4.2;
-    this.healthIndex = dt.composite_health_index || 100;
-    this.isAnomaly = pred.is_anomaly || false;
-    this.faultCode = pred.fault_code || 0;
+    const rt  = packet.raw_telemetry || {};
+    const dt  = packet.digital_twin  || {};
+    const pred = packet.prediction   || {};
+    this._state.rpm        = rt.rpm         ?? this._state.rpm;
+    this._state.health     = dt.composite_health_index ?? this._state.health;
+    this._state.temperature = rt.temperature ?? this._state.temperature;
+    this._state.vibration  = rt.vibration_rms ?? this._state.vibration;
+    this._state.faultCode  = pred.fault_code  ?? 0;
+    this._state.isAnomaly  = !!pred.is_anomaly;
+    this._state.severity   = pred.severity_level || 'NORMAL';
   }
 
-  animate(currentTime) {
-    const dt = (currentTime - this.lastFrameTime) / 1000.0;
-    this.lastFrameTime = currentTime;
-    
-    // Increment rotation based on live RPM (scaled for visual aesthetics)
-    const angularSpeed = (this.rpm / 60.0) * 2 * Math.PI * 0.15;
-    this.rotationAngle += angularSpeed * dt;
-    
-    this.render();
-    requestAnimationFrame(this.animate);
+  _resize() {
+    const wrap = this.canvas.parentElement;
+    const dpr  = window.devicePixelRatio || 1;
+    const w    = wrap ? wrap.clientWidth  : 400;
+    const h    = wrap ? wrap.clientHeight : 240;
+    this.canvas.width  = w * dpr;
+    this.canvas.height = h * dpr;
+    this.canvas.style.width  = w + 'px';
+    this.canvas.style.height = h + 'px';
+    this.ctx.scale(dpr, dpr);
+    this._w = w;
+    this._h = h;
   }
 
-  render() {
-    const ctx = this.ctx;
-    const w = this.width;
-    const h = this.height;
+  _loop() {
+    this._rafId = requestAnimationFrame(() => this._loop());
+    const rpm = Math.max(100, this._state.rpm);
+    // Angular velocity proportional to RPM; vibration adds jitter
+    const vibJitter = this._state.isAnomaly ? (Math.random() - 0.5) * 0.04 * this._state.vibration : 0;
+    this._angle += (rpm / 60 / 60) + vibJitter; // ~degrees per frame at 60fps
+    this._draw();
+  }
+
+  _draw() {
+    const { ctx } = this;
+    const w = this._w, h = this._h;
+    const cx = w * 0.42, cy = h * 0.5;
+    const R  = Math.min(w, h) * 0.28;
+
     ctx.clearRect(0, 0, w, h);
 
-    // Subtle background grid
-    this.drawGrid(ctx, w, h);
+    // --- Health colour ---
+    const health = this._state.health;
+    const healthColor = health >= 85 ? '#4ADE80' : health >= 60 ? '#FBBF24' : '#F87171';
 
-    const centerX = w * 0.46;
-    const centerY = h * 0.52;
-    
-    // Overall Asset Health Glow
-    this.drawAssetGlow(ctx, centerX, centerY);
-
-    // Vibration jitter offset if vibration is high
-    let jitterX = 0;
-    let jitterY = 0;
-    if (this.vibRms > 3.0) {
-      const jitterMagnitude = Math.min(10, (this.vibRms - 2.5) * 1.5);
-      jitterX = (Math.random() - 0.5) * jitterMagnitude;
-      jitterY = (Math.random() - 0.5) * jitterMagnitude;
-    }
-
+    // --- Stator housing (outer ring - dark metallic graphite) ---
     ctx.save();
-    ctx.translate(centerX + jitterX, centerY + jitterY);
-
-    // 1. Foundation Base Mount
-    this.drawBasePlate(ctx);
-
-    // 2. Motor Stator Casing with Thermal Heat Map
-    this.drawMotorStator(ctx);
-
-    // 3. Central Rotating Rotor Shaft & Coupling
-    this.drawRotatingShaft(ctx);
-
-    // 4. Drive & Non-Drive End Bearing Housings with Vibration Waves
-    this.drawBearings(ctx);
-
-    // 5. Centrifugal Pump Volute & Impeller
-    this.drawPumpVolute(ctx);
-
-    // 6. Sensor Probe Overlays & Telemetry Labels
-    this.drawSensorProbes(ctx);
-
-    ctx.restore();
-  }
-
-  drawGrid(ctx, w, h) {
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.04)';
-    ctx.lineWidth = 1;
-    const step = 24;
-    for (let x = 0; x < w; x += step) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
-    }
-    for (let y = 0; y < h; y += step) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
-  }
-
-  drawAssetGlow(ctx, cx, cy) {
-    let glowColor = 'rgba(16, 185, 129, 0.12)';
-    if (this.healthIndex < 60 || this.isAnomaly) {
-      glowColor = 'rgba(244, 63, 94, 0.22)';
-    } else if (this.healthIndex < 85) {
-      glowColor = 'rgba(245, 158, 11, 0.18)';
-    }
-
-    const radGrad = ctx.createRadialGradient(cx, cy, 30, cx, cy, 220);
-    radGrad.addColorStop(0, glowColor);
-    radGrad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = radGrad;
+    const statorGrad = ctx.createRadialGradient(cx, cy, R * 0.7, cx, cy, R * 1.05);
+    statorGrad.addColorStop(0, '#1E293B');
+    statorGrad.addColorStop(1, '#0F172A');
     ctx.beginPath();
-    ctx.arc(cx, cy, 220, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  drawBasePlate(ctx) {
-    // Heavy steel cast bedplate
-    ctx.fillStyle = '#1e293b';
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 2;
-    
-    ctx.beginPath();
-    ctx.roundRect(-220, 75, 420, 26, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    // Fastener bolts
-    ctx.fillStyle = '#64748b';
-    [-190, -110, 20, 110, 170].forEach(bx => {
-      ctx.beginPath();
-      ctx.arc(bx, 88, 4, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  }
-
-  drawMotorStator(ctx) {
-    // Dynamic color gradient based on temperature (50C = Cyan/Blue, 90C+ = Hot Red)
-    const tNorm = Math.max(0, Math.min(1, (this.temperature - 50) / 45));
-    let r = Math.round(14 + tNorm * 220);
-    let g = Math.round(116 - tNorm * 80);
-    let b = Math.round(144 - tNorm * 110);
-    
-    // Stator Body Cylinder
-    const statorGrad = ctx.createLinearGradient(-190, -60, -190, 70);
-    statorGrad.addColorStop(0, `rgb(${r+15}, ${g+15}, ${b+15})`);
-    statorGrad.addColorStop(0.5, `rgb(${r}, ${g}, ${b})`);
-    statorGrad.addColorStop(1, `rgb(${Math.max(0, r-30)}, ${Math.max(0, g-30)}, ${Math.max(0, b-30)})`);
-
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
     ctx.fillStyle = statorGrad;
-    ctx.strokeStyle = this.isAnomaly && this.faultCode === 2 ? '#f43f5e' : '#38bdf8';
-    ctx.lineWidth = 2;
-    
-    ctx.beginPath();
-    ctx.roundRect(-190, -55, 175, 125, 8);
     ctx.fill();
+    ctx.strokeStyle = healthColor + '66';
+    ctx.lineWidth = 2.5;
     ctx.stroke();
+    ctx.restore();
 
-    // Stator cooling ribs
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-    for (let rx = -180; rx < -25; rx += 16) {
-      ctx.fillRect(rx, -55, 6, 125);
-    }
-
-    // Terminal Box on top
-    ctx.fillStyle = '#334155';
-    ctx.strokeStyle = '#475569';
-    ctx.beginPath();
-    ctx.roundRect(-135, -78, 65, 24, 4);
-    ctx.fill();
-    ctx.stroke();
-
-    // Terminal wire glow
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillRect(-110, -74, 15, 6);
-  }
-
-  drawRotatingShaft(ctx) {
-    // Main drive shaft
-    ctx.fillStyle = '#94a3b8';
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 1;
-    ctx.fillRect(-210, 0, 310, 16);
-
-    // Dynamic rotation stripes on shaft to show RPM spinning
+    // --- Stator windings (industrial copper & steel tones) ---
     ctx.save();
-    ctx.clip(new Path2D(`M-210,0 h310 v16 h-310 Z`));
-    const stripeOffset = (this.rotationAngle * 25) % 24;
-    ctx.fillStyle = '#475569';
-    for (let sx = -220 + stripeOffset; sx < 110; sx += 24) {
-      ctx.fillRect(sx, 0, 10, 16);
+    const windingColors = ['#C27838', '#94A3B8', '#D97706', '#64748B', '#B45309', '#748196'];
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      const x1 = cx + Math.cos(angle) * R * 0.62;
+      const y1 = cy + Math.sin(angle) * R * 0.62;
+      const x2 = cx + Math.cos(angle) * R * 0.88;
+      const y2 = cy + Math.sin(angle) * R * 0.88;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = windingColors[i] + '90';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Winding coil arc
+      ctx.beginPath();
+      ctx.arc(x2, y2, R * 0.08, angle - 0.7, angle + 0.7);
+      ctx.strokeStyle = windingColors[i] + '60';
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
     ctx.restore();
 
-    // Flexible Coupling between motor and pump
-    ctx.fillStyle = '#1e293b';
-    ctx.strokeStyle = '#64748b';
+    // --- Rotor (rotates with real RPM) ---
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(this._angle * Math.PI / 180);
+
+    const rotorGrad = ctx.createRadialGradient(0, 0, R * 0.05, 0, 0, R * 0.52);
+    rotorGrad.addColorStop(0, '#263342');
+    rotorGrad.addColorStop(1, '#141B24');
     ctx.beginPath();
-    ctx.roundRect(-10, -8, 24, 32, 4);
+    ctx.arc(0, 0, R * 0.52, 0, Math.PI * 2);
+    ctx.fillStyle = rotorGrad;
     ctx.fill();
-    ctx.stroke();
-  }
-
-  drawBearings(ctx) {
-    // Bearing locations: Non-Drive End (-195) and Drive End (-20)
-    const bearingX = [-195, -25];
-    
-    bearingX.forEach((bx, idx) => {
-      // Bearing housing
-      ctx.fillStyle = '#334155';
-      ctx.strokeStyle = (this.faultCode === 1 && this.isAnomaly) ? '#f43f5e' : '#64748b';
-      ctx.lineWidth = (this.faultCode === 1 && this.isAnomaly) ? 3 : 1.5;
-      
-      ctx.beginPath();
-      ctx.roundRect(bx, -18, 16, 52, 4);
-      ctx.fill();
-      ctx.stroke();
-
-      // Bearing Defect Vibration Wave Rings
-      if (this.faultCode === 1 || this.vibPeak > 4.5) {
-        const pulse = (performance.now() * 0.006) % 1;
-        ctx.strokeStyle = `rgba(244, 63, 94, ${1 - pulse})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(bx + 8, 8, 16 + pulse * 28, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    });
-  }
-
-  drawPumpVolute(ctx) {
-    // Centrifugal Pump Spiral Volute Housing
-    const pumpGrad = ctx.createRadialGradient(75, 8, 10, 75, 8, 65);
-    pumpGrad.addColorStop(0, '#0f172a');
-    pumpGrad.addColorStop(1, '#1e293b');
-
-    ctx.fillStyle = pumpGrad;
-    ctx.strokeStyle = (this.faultCode === 4 && this.isAnomaly) ? '#f43f5e' : '#38bdf8';
-    ctx.lineWidth = 2.5;
-
-    // Pump spiral casing
-    ctx.beginPath();
-    ctx.arc(75, 8, 55, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.strokeStyle = '#273240';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Pump Discharge Flange (vertical outlet)
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(60, -85, 30, 40);
-    ctx.strokeRect(55, -92, 40, 10);
-
-    // Fluid flow waves in discharge pipe
-    const flowOffset = (performance.now() * 0.05) % 15;
-    ctx.strokeStyle = (this.faultCode === 4) ? '#f59e0b' : '#06b6d4';
-    ctx.lineWidth = 2;
-    for (let fy = -80 + flowOffset; fy < -50; fy += 12) {
+    // Rotor bars
+    const barColor = this._state.faultCode === 3 ? '#FBBF24' : (this._state.isAnomaly ? '#F87171' : '#38BDF8');
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
       ctx.beginPath();
-      ctx.moveTo(68, fy);
-      ctx.lineTo(82, fy);
+      ctx.moveTo(Math.cos(a) * R * 0.18, Math.sin(a) * R * 0.18);
+      ctx.lineTo(Math.cos(a) * R * 0.46, Math.sin(a) * R * 0.46);
+      ctx.strokeStyle = barColor + (this._state.isAnomaly ? 'CC' : '70');
+      ctx.lineWidth = this._state.faultCode === 3 ? 3 : 1.5; // thicker if rotor imbalance
       ctx.stroke();
     }
 
-    // Rotating Impeller Blades inside pump
+    // Shaft center
+    const shaftGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 0.12);
+    shaftGrad.addColorStop(0, '#475569');
+    shaftGrad.addColorStop(1, '#1E293B');
+    ctx.beginPath();
+    ctx.arc(0, 0, R * 0.12, 0, Math.PI * 2);
+    ctx.fillStyle = shaftGrad;
+    ctx.fill();
+    ctx.strokeStyle = '#64748B';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.restore();
+
+    // --- Health glow overlay (restrained, only during anomaly) ---
+    if (this._state.isAnomaly) {
+      const t = Date.now() / 600;
+      const glow = Math.abs(Math.sin(t)) * 0.25 + 0.05;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 1.02, 0, Math.PI * 2);
+      ctx.strokeStyle = healthColor;
+      ctx.lineWidth = 2.5;
+      ctx.globalAlpha = glow;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // --- Pump volute (right side) ---
+    const pumpX = cx + R * 1.35, pumpY = cy;
+    const pumpR = R * 0.38;
     ctx.save();
-    ctx.translate(75, 8);
-    ctx.rotate(this.rotationAngle);
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 3;
-    for (let i = 0; i < 4; i++) {
+    const pumpGrad = ctx.createRadialGradient(pumpX, pumpY, pumpR * 0.3, pumpX, pumpY, pumpR);
+    pumpGrad.addColorStop(0, '#1E293B');
+    pumpGrad.addColorStop(1, '#0F172A');
+    ctx.beginPath();
+    ctx.ellipse(pumpX, pumpY, pumpR, pumpR * 0.9, 0, 0, Math.PI * 2);
+    ctx.fillStyle = pumpGrad;
+    ctx.fill();
+    const pumpBorderColor = this._state.faultCode === 4 ? '#F87171' : (this._state.isAnomaly ? '#FB923C' : '#2DD4BF');
+    ctx.strokeStyle = pumpBorderColor + '70';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Pump impeller
+    ctx.save();
+    ctx.translate(pumpX, pumpY);
+    ctx.rotate(-(this._angle * 0.85) * Math.PI / 180);
+    const impellerColor = this._state.faultCode === 4 ? '#F87171' : '#2DD4BF';
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
       ctx.beginPath();
       ctx.moveTo(0, 0);
-      ctx.quadraticCurveTo(15, 12, 38, 0);
+      ctx.bezierCurveTo(
+        Math.cos(a) * pumpR * 0.25, Math.sin(a) * pumpR * 0.25,
+        Math.cos(a + 0.6) * pumpR * 0.55, Math.sin(a + 0.6) * pumpR * 0.55,
+        Math.cos(a + 0.9) * pumpR * 0.5, Math.sin(a + 0.9) * pumpR * 0.5
+      );
+      ctx.strokeStyle = impellerColor + '99';
+      ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.rotate(Math.PI / 2);
     }
-    // Impeller central eye hub
-    ctx.fillStyle = '#64748b';
+    ctx.restore();
+
+    // Coupling shaft
     ctx.beginPath();
-    ctx.arc(0, 0, 9, 0, Math.PI * 2);
+    ctx.moveTo(cx + R, pumpY - 4);
+    ctx.lineTo(pumpX - pumpR, pumpY - 4);
+    ctx.lineTo(pumpX - pumpR, pumpY + 4);
+    ctx.lineTo(cx + R, pumpY + 4);
+    ctx.closePath();
+    ctx.fillStyle = '#1E293B';
+    ctx.fill();
+    ctx.strokeStyle = '#273240';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+
+    // --- Temperature indicator (thermal shading if high temp) ---
+    if (this._state.temperature > 75) {
+      const heat = Math.min(1, (this._state.temperature - 75) / 20);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 1.01, 0, Math.PI * 2);
+      ctx.fillStyle = this._state.temperature > 85 ? `rgba(248,113,113,${heat * 0.15})` : `rgba(251,191,36,${heat * 0.12})`;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // --- Discharge pipe arrow ---
+    const pipeX = pumpX + pumpR;
+    const pipeColor = this._state.faultCode === 4 ? '#F87171' : '#2DD4BF';
+    ctx.save();
+    ctx.strokeStyle = pipeColor + 'AA';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(pipeX, pumpY);
+    ctx.lineTo(pipeX + 32, pumpY);
+    ctx.stroke();
+    // Arrow head
+    ctx.fillStyle = pipeColor;
+    ctx.beginPath();
+    ctx.moveTo(pipeX + 38, pumpY);
+    ctx.lineTo(pipeX + 28, pumpY - 6);
+    ctx.lineTo(pipeX + 28, pumpY + 6);
+    ctx.closePath();
     ctx.fill();
     ctx.restore();
-  }
 
-  drawSensorProbes(ctx) {
-    // 1. Stator Temp Sensor
-    ctx.fillStyle = '#06b6d4';
-    ctx.beginPath();
-    ctx.arc(-100, -56, 4, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // 2. Drive Bearing Accelerometer
-    ctx.fillStyle = '#a855f7';
-    ctx.beginPath();
-    ctx.arc(-17, -20, 4, 0, Math.PI * 2);
-    ctx.fill();
+    // --- RPM text ---
+    ctx.save();
+    ctx.font = `bold ${Math.max(11, R * 0.22)}px JetBrains Mono, monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#F1F5F9';
+    ctx.fillText(`${Math.round(this._state.rpm)}`, cx, cy + R * 0.06);
+    ctx.font = `${Math.max(9, R * 0.16)}px Inter, sans-serif`;
+    ctx.fillStyle = '#748196';
+    ctx.fillText('RPM', cx, cy + R * 0.22);
+    ctx.restore();
 
-    // 3. Discharge Pressure Transducer
-    ctx.fillStyle = '#10b981';
-    ctx.beginPath();
-    ctx.arc(75, -92, 4, 0, Math.PI * 2);
-    ctx.fill();
+    // --- Simulated label watermark ---
+    ctx.save();
+    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(116, 129, 150, 0.4)';
+    ctx.fillText('DIGITAL TWIN SIMULATION', w - 10, h - 10);
+    ctx.restore();
   }
 }
-
-window.DigitalTwinVisualizer = DigitalTwinVisualizer;

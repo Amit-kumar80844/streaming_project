@@ -1,218 +1,257 @@
 /**
- * Lightweight, Ultra-Responsive High-DPI Streaming Charts.
- * Built with HTML5 Canvas for zero-dependency offline reliability, 60fps rendering, and neon glowing traces.
+ * Telemetry Charts Manager — Real-Time Digital Twin Dashboard
+ * Uses native Canvas API; no external charting library required.
+ * IOE413 Team 12
  */
-
-class RealTimeStreamChart {
-  constructor(canvasId, options = {}) {
-    this.canvas = document.getElementById(canvasId);
-    if (!this.canvas) return;
-    this.ctx = this.canvas.getContext('2d');
-    
-    this.maxPoints = options.maxPoints || 50;
-    this.series = (options.series || []).map(s => ({
-      data: [],
-      ...s
-    }));
-    this.yMin = options.yMin !== undefined ? options.yMin : 0;
-    this.yMax = options.yMax !== undefined ? options.yMax : 100;
-    this.threshold = options.threshold || null;
-    this.unit = options.unit || '';
-    
-    this.resize();
-    window.addEventListener('resize', () => this.resize());
-  }
-
-  resize() {
-    if (!this.canvas || !this.canvas.parentElement) return;
-    const rect = this.canvas.parentElement.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-    const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
-    this.ctx = this.canvas.getContext('2d');
-    this.ctx.scale(dpr, dpr);
-    this.width = rect.width;
-    this.height = rect.height;
-    this.render();
-  }
-
-  pushValues(valuesMap) {
-    this.series.forEach(s => {
-      const v = valuesMap[s.name];
-      if (v !== undefined) {
-        s.data.push(v);
-        if (s.data.length > this.maxPoints) {
-          s.data.shift();
-        }
-      }
-    });
-    this.render();
-  }
-
-  render() {
-    if (!this.canvas) return;
-    if (!this.width || this.width <= 0) {
-      this.resize();
-      return;
-    }
-    const ctx = this.ctx;
-    const w = this.width;
-    const h = this.height;
-    
-    ctx.clearRect(0, 0, w, h);
-    
-    // Draw subtle horizontal gridlines & labels
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-    ctx.fillStyle = '#64748b';
-    ctx.font = '9px "JetBrains Mono", monospace';
-    ctx.lineWidth = 1;
-
-    const gridSteps = 3;
-    for (let i = 0; i <= gridSteps; i++) {
-      const y = h - 18 - (i * (h - 26) / gridSteps);
-      const val = this.yMin + (i * (this.yMax - this.yMin) / gridSteps);
-      
-      ctx.beginPath();
-      ctx.moveTo(35, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-
-      ctx.fillText(`${val.toFixed(1)}${this.unit}`, 4, y + 3);
-    }
-
-    // Threshold indicator line if present
-    if (this.threshold !== null && this.threshold >= this.yMin && this.threshold <= this.yMax) {
-      const ty = h - 18 - ((this.threshold - this.yMin) / (this.yMax - this.yMin)) * (h - 26);
-      ctx.save();
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = 'rgba(244, 63, 94, 0.7)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(35, ty);
-      ctx.lineTo(w, ty);
-      ctx.stroke();
-      ctx.fillStyle = '#f43f5e';
-      ctx.fillText('LIMIT', w - 32, ty - 3);
-      ctx.restore();
-    }
-
-    // Plot each series line
-    this.series.forEach(s => {
-      if (s.data.length < 2) return;
-      
-      ctx.save();
-      ctx.strokeStyle = s.color;
-      ctx.lineWidth = s.lineWidth || 2;
-      ctx.shadowColor = s.color;
-      ctx.shadowBlur = s.glow ? 8 : 0;
-      
-      if (s.dashed) {
-        ctx.setLineDash([4, 3]);
-      } else {
-        ctx.setLineDash([]);
-      }
-
-      ctx.beginPath();
-      const xStep = (w - 40) / (this.maxPoints - 1);
-      
-      s.data.forEach((val, idx) => {
-        const x = 38 + (idx + (this.maxPoints - s.data.length)) * xStep;
-        const clamped = Math.max(this.yMin, Math.min(this.yMax, val));
-        const y = h - 18 - ((clamped - this.yMin) / (this.yMax - this.yMin)) * (h - 26);
-        
-        if (idx === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      });
-      ctx.stroke();
-      ctx.restore();
-    });
-  }
-}
 
 class TelemetryChartsManager {
   constructor() {
-    // 1. Vibration Dynamics (RMS & Peak)
-    this.chartVib = new RealTimeStreamChart('chartVibration', {
-      maxPoints: 40,
-      yMin: 0,
-      yMax: 12,
-      unit: '',
-      threshold: 4.5,
-      series: [
-        { name: 'vibration_rms', color: '#06b6d4', glow: true, lineWidth: 2 },
-        { name: 'vibration_peak', color: '#e879f9', dashed: true, lineWidth: 1.5 }
-      ]
+    this.MAX_POINTS = 80;
+    this.charts = {};
+    this._init();
+  }
+
+  _init() {
+    // Vibration RMS + Peak
+    this.charts.vib = this._makeChart('chartVibration', {
+      datasets: [
+        { label: 'RMS',  color: '#38BDF8', data: [], limit: 4.5 },
+        { label: 'Peak', color: '#A78BFA', data: [] },
+      ],
+      yLabel: 'mm/s',
+      limitLine: 4.5,
+      limitColor: 'rgba(248, 113, 113, 0.75)',
     });
 
-    // 2. Thermal Profile (Actual vs Twin Expected)
-    this.chartTemp = new RealTimeStreamChart('chartTemperature', {
-      maxPoints: 40,
-      yMin: 30,
-      yMax: 100,
-      unit: '°C',
-      threshold: 85,
-      series: [
-        { name: 'temp_actual', color: '#f59e0b', glow: true, lineWidth: 2 },
-        { name: 'temp_twin', color: '#38bdf8', dashed: true, lineWidth: 1.5 }
-      ]
+    // Temperature: actual vs twin
+    this.charts.temp = this._makeChart('chartTemperature', {
+      datasets: [
+        { label: 'Actual',  color: '#FBBF24', data: [] },
+        { label: 'Twin',    color: '#38BDF8', data: [], dashed: true },
+      ],
+      yLabel: '°C',
+      limitLine: 85,
+      limitColor: 'rgba(248, 113, 113, 0.75)',
     });
 
-    // 3. Electrical & Speed Dynamics
-    this.chartElectrical = new RealTimeStreamChart('chartElectrical', {
-      maxPoints: 40,
-      yMin: 10,
-      yMax: 40,
-      unit: 'A',
-      threshold: 32,
-      series: [
-        { name: 'current_amp', color: '#eab308', glow: true, lineWidth: 2 }
-      ]
+    // Current
+    this.charts.curr = this._makeChart('chartElectrical', {
+      datasets: [
+        { label: 'Current (A)', color: '#2DD4BF', data: [] },
+      ],
+      yLabel: 'A',
+      limitLine: 28.5,
+      limitColor: 'rgba(251, 191, 36, 0.75)',
     });
 
-    // 4. Composite Health Index & Residual Tracking
-    this.chartHealth = new RealTimeStreamChart('chartHealth', {
-      maxPoints: 40,
-      yMin: 0,
-      yMax: 100,
-      unit: '%',
-      threshold: 60,
-      series: [
-        { name: 'health_index', color: '#10b981', glow: true, lineWidth: 2.5 }
-      ]
+    // CHI
+    this.charts.health = this._makeChart('chartHealth', {
+      datasets: [
+        { label: 'CHI (%)', color: '#4ADE80', data: [], fill: true },
+      ],
+      yLabel: '%',
+      yMin: 0, yMax: 100,
+      limitLine: 60,
+      limitColor: 'rgba(248, 113, 113, 0.75)',
     });
+
+    window.addEventListener('resize', () => this._resizeAll());
+  }
+
+  _makeChart(canvasId, config) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return null;
+    const ctx = canvas.getContext('2d');
+    const chart = { canvas, ctx, config, labels: [] };
+    this._resize(chart);
+    return chart;
+  }
+
+  _resize(chart) {
+    if (!chart) return;
+    const wrap = chart.canvas.parentElement;
+    if (!wrap) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = wrap.clientWidth  || 300;
+    const h = wrap.clientHeight || 130;
+    chart.canvas.width  = w * dpr;
+    chart.canvas.height = h * dpr;
+    chart.canvas.style.width  = w + 'px';
+    chart.canvas.style.height = h + 'px';
+    chart.ctx.scale(dpr, dpr);
+    chart._w = w;
+    chart._h = h;
+  }
+
+  _resizeAll() {
+    Object.values(this.charts).forEach(c => { if (c) this._resize(c); });
+    this._redrawAll();
   }
 
   update(packet) {
-    const raw = packet.raw_telemetry || {};
-    const dt = packet.digital_twin || {};
-    
-    // Update Vibration
-    this.chartVib.pushValues({
-      vibration_rms: raw.vibration_rms,
-      vibration_peak: raw.vibration_peak
-    });
+    const rt  = packet.raw_telemetry || {};
+    const dt  = packet.digital_twin  || {};
+    const exp = dt.expected_state    || {};
+    const chi = dt.composite_health_index;
 
-    // Update Temperature
-    const exp = dt.expected_state || {};
-    this.chartTemp.pushValues({
-      temp_actual: raw.temperature,
-      temp_twin: exp.temperature || raw.temperature
-    });
+    this._push(this.charts.vib,    [rt.vibration_rms, rt.vibration_peak]);
+    this._push(this.charts.temp,   [rt.temperature, exp.temperature]);
+    this._push(this.charts.curr,   [rt.current_amp]);
+    this._push(this.charts.health, [chi]);
 
-    // Update Electrical
-    this.chartElectrical.pushValues({
-      current_amp: raw.current_amp
-    });
+    this._redrawAll();
+  }
 
-    // Update Health
-    this.chartHealth.pushValues({
-      health_index: dt.composite_health_index
+  _push(chart, values) {
+    if (!chart) return;
+    chart.labels.push('');
+    if (chart.labels.length > this.MAX_POINTS) chart.labels.shift();
+    chart.config.datasets.forEach((ds, i) => {
+      ds.data.push(values[i] ?? null);
+      if (ds.data.length > this.MAX_POINTS) ds.data.shift();
     });
   }
-}
 
-window.TelemetryChartsManager = TelemetryChartsManager;
+  _redrawAll() {
+    Object.values(this.charts).forEach(c => { if (c) this._drawChart(c); });
+  }
+
+  _drawChart(chart) {
+    const { ctx, config } = chart;
+    const w = chart._w || chart.canvas.width;
+    const h = chart._h || chart.canvas.height;
+    const PAD = { top: 8, right: 12, bottom: 24, left: 40 };
+    const plotW = w - PAD.left - PAD.right;
+    const plotH = h - PAD.top  - PAD.bottom;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Collect all data points to compute range
+    let allVals = [];
+    config.datasets.forEach(ds => {
+      ds.data.forEach(v => { if (v != null) allVals.push(v); });
+    });
+    if (allVals.length === 0) {
+      this._drawEmpty(ctx, w, h);
+      return;
+    }
+
+    let yMin = config.yMin ?? (Math.min(...allVals) * 0.9);
+    let yMax = config.yMax ?? (Math.max(...allVals) * 1.1 + 0.001);
+    if (config.limitLine) {
+      yMax = Math.max(yMax, config.limitLine * 1.05);
+    }
+    if (yMax - yMin < 0.5) { yMin -= 0.25; yMax += 0.25; }
+
+    const scaleX = i => PAD.left + (i / (this.MAX_POINTS - 1)) * plotW;
+    const scaleY = v => PAD.top  + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+    // Grid lines (4 horizontal)
+    ctx.strokeStyle = 'rgba(39, 50, 64, 0.7)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = PAD.top + (plotH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y); ctx.stroke();
+      const val = yMax - ((yMax - yMin) / 4) * i;
+      ctx.fillStyle = '#748196';
+      ctx.font = '10px JetBrains Mono, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(val.toFixed(1), PAD.left - 4, y + 3);
+    }
+
+    // Limit line
+    if (config.limitLine != null && config.limitLine >= yMin && config.limitLine <= yMax) {
+      const ly = scaleY(config.limitLine);
+      ctx.strokeStyle = config.limitColor || 'rgba(248, 113, 113, 0.75)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(PAD.left, ly); ctx.lineTo(PAD.left + plotW, ly); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Datasets
+    config.datasets.forEach((ds, di) => {
+      const pts = ds.data;
+      if (!pts.length) return;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(PAD.left, PAD.top, plotW, plotH);
+      ctx.clip();
+
+      ctx.strokeStyle = ds.color;
+      ctx.lineWidth = 1.5;
+      ctx.lineJoin = 'round';
+      if (ds.dashed) ctx.setLineDash([4, 3]);
+
+      // Fill (only first dataset with fill:true)
+      if (ds.fill) {
+        ctx.beginPath();
+        let started = false;
+        pts.forEach((v, i) => {
+          if (v == null) return;
+          const x = scaleX(i);
+          const y = scaleY(v);
+          if (!started) { ctx.moveTo(x, y); started = true; }
+          else ctx.lineTo(x, y);
+        });
+        // Close fill path to bottom
+        const lastI = pts.reduce((a, v, i) => v != null ? i : a, -1);
+        const firstI = pts.findIndex(v => v != null);
+        if (lastI >= 0) {
+          ctx.lineTo(scaleX(lastI), PAD.top + plotH);
+          ctx.lineTo(scaleX(firstI), PAD.top + plotH);
+          ctx.closePath();
+          const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + plotH);
+          grad.addColorStop(0, ds.color + '25');
+          grad.addColorStop(1, ds.color + '00');
+          ctx.fillStyle = grad;
+          ctx.fill();
+        }
+      }
+
+      // Line
+      ctx.beginPath();
+      let started = false;
+      pts.forEach((v, i) => {
+        if (v == null) { started = false; return; }
+        const x = scaleX(i);
+        const y = scaleY(v);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    });
+
+    // Axis label
+    ctx.fillStyle = '#748196';
+    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.save();
+    ctx.translate(10, PAD.top + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(config.yLabel || '', 0, 0);
+    ctx.restore();
+
+    // Legend
+    let lx = PAD.left;
+    config.datasets.forEach(ds => {
+      ctx.fillStyle = ds.color;
+      ctx.fillRect(lx, h - 14, 14, 3);
+      ctx.fillStyle = '#A7B3C4';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(ds.label, lx + 18, h - 9);
+      lx += ctx.measureText(ds.label).width + 36;
+    });
+  }
+
+  _drawEmpty(ctx, w, h) {
+    ctx.fillStyle = '#748196';
+    ctx.font = '11px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Awaiting stream…', w / 2, h / 2 + 4);
+  }
+}

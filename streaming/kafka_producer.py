@@ -39,7 +39,9 @@ class IIoTKafkaProducer:
                 value_serializer=lambda v: json.dumps(v).encode("utf-8"),
                 key_serializer=lambda k: k.encode("utf-8") if k else None,
                 acks=1,
-                retries=3
+                retries=3,
+                request_timeout_ms=3000,
+                max_block_ms=3000
             )
             logger.info(f"Connected to Kafka broker at {self.bootstrap_servers}")
         except Exception as e:

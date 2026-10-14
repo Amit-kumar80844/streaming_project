@@ -1,6 +1,6 @@
 """
 Configuration Settings for IOE413 Real-Time Digital Twin Streaming Project.
-Team No - 12 | Rohit Pratap Singh (2023BCS0138)
+Team No - 12 | Amit Kumar (2023BCS0210), Kartik P (2023BCD0051), Rohit Pratap Singh (2023BCS0138), Mohammed Sirajudheen (2023BCS0132)
 Baseline Paper: Ranpariya & Sharma (2025), Journal of Simulation
 """
 
@@ -30,9 +30,9 @@ SLIDE_DURATION_SEC = 1           # 1-second slide interval
 MAX_STREAM_BUFFER_SIZE = 1000
 
 # Server & Dashboard Configuration
-HOST = "127.0.0.1"
-PORT = 8000
-WS_HEARTBEAT_INTERVAL = 1.0
+HOST = os.getenv("HOST", "127.0.0.1")
+PORT = int(os.getenv("PORT", "8000"))
+WS_HEARTBEAT_INTERVAL = float(os.getenv("WS_HEARTBEAT_INTERVAL", "1.0"))
 
 # Digital Twin Parameters (Induction Motor / Pump Asset ID: TWIN-MTR-01)
 ASSET_METADATA = {
