@@ -1,7 +1,154 @@
+```gitignore
+# ==============================
+# Python
+# ==============================
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+*.pyd
+.Python
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+MANIFEST
+
+# ==============================
+# Virtual Environments
+# ==============================
+.venv/
+venv/
+env/
+ENV/
+.python_venv/
+
+# ==============================
+# Environment Variables & Secrets
+# ==============================
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+secrets.json
+secrets.yaml
+secrets.yml
+
+# ==============================
+# Logs & Runtime Files
+# ==============================
 *.log
-.system_generated/
+logs/
+*.pid
+*.seed
+*.out
+
+# ==============================
+# Testing & Coverage
+# ==============================
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+.hypothesis/
+
+# ==============================
+# IDEs & Editors
+# ==============================
+.idea/
+*.iml
+.vscode/
+.fleet/
+
+# ==============================
+# Operating System
+# ==============================
 .DS_Store
 Thumbs.db
+Desktop.ini
+.system_generated/
+
+# ==============================
+# Temporary Files & Caches
+# ==============================
+.cache/
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# ==============================
+# Jupyter Notebooks
+# ==============================
+.ipynb_checkpoints/
+
+# ==============================
+# ML Model Artifacts
+# ==============================
+#*.pt
+#*.pth
+#*.ckpt
+#*.onnx
+#*.h5
+#*.keras
+#*.joblib
+
+# ==============================
+# Local Databases
+# ==============================
+*.sqlite
+*.sqlite3
+*.db
+
+# ==============================
+# Generated Experiment Outputs
+# ==============================
+#/runs/
+
+# ==============================
+# Generated Dataset Directories
+# Uncomment only if these contain
+# local/generated data you don't
+# want to commit.
+# ==============================
+# /data/raw/
+# /data/processed/
+# /data/interim/
+# /data/external/
+
+# ==============================
+# Generated Reports
+# ==============================
+reports/generated/
+evaluation/results/
+
+# ==============================
+# Streamlit Secrets
+# ==============================
+.streamlit/secrets.toml
+.streamlit/credentials.toml
+
+# ==============================
+# Docker & Local Overrides
+# ==============================
+.env.docker
+docker-compose.override.yaml
+docker-compose.override.yml
+compose.override.yaml
+compose.override.yml
+```
