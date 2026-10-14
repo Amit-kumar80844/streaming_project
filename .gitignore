@@ -100,13 +100,13 @@ temp/
 # ==============================
 # ML Model Artifacts
 # ==============================
-*.pt
-*.pth
-*.ckpt
-*.onnx
-*.h5
-*.keras
-*.joblib
+#*.pt
+#*.pth
+#*.ckpt
+#*.onnx
+#*.h5
+#*.keras
+#*.joblib
 
 # ==============================
 # Local Databases
@@ -118,7 +118,7 @@ temp/
 # ==============================
 # Generated Experiment Outputs
 # ==============================
-/runs/
+#/runs/
 
 # ==============================
 # Generated Dataset Directories
