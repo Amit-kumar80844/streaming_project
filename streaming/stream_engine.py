@@ -11,7 +11,6 @@ Coordinates:
 import time
 import asyncio
 import logging
-import os
 import json
 import threading
 from collections import deque
@@ -19,34 +18,36 @@ from typing import Dict, Any, List, Set
 from data.generator import IIoTSensorStreamSimulator
 from models.digital_twin import IndustrialDigitalTwin
 from models.two_stage_ensemble import TwoStageFaultDetectionEnsemble
+from config.settings import KAFKA_BOOTSTRAP_SERVERS, KAFKA_ENABLED, KAFKA_TOPIC_TELEMETRY
+from streaming.kafka_consumer import IIoTKafkaConsumer
 
 logger = logging.getLogger("StreamEngine")
 _kafka_queue = None
 _kafka_worker_started = False
+_kafka_producer = None
 
 def _start_kafka_publisher():
     """Publish queued telemetry off the async dashboard event loop."""
-    global _kafka_queue, _kafka_worker_started
-    if _kafka_worker_started or os.getenv("KAFKA_ENABLED", "false").lower() not in {"1", "true", "yes"}:
+    global _kafka_queue, _kafka_worker_started, _kafka_producer
+    if _kafka_worker_started or not KAFKA_ENABLED:
         return
+    import queue
+    if _kafka_queue is None:
+        _kafka_queue = queue.Queue(maxsize=1000)
     try:
         from kafka import KafkaProducer
-        producer = KafkaProducer(
-            bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
+        _kafka_producer = KafkaProducer(
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
             value_serializer=lambda value: json.dumps(value).encode("utf-8"),
             key_serializer=lambda key: key.encode("utf-8") if key else None,
             request_timeout_ms=3000,
             max_block_ms=3000,
         )
-        import queue
-        _kafka_queue = queue.Queue(maxsize=1000)
-
         def publish_loop():
             while True:
                 record = _kafka_queue.get()
                 try:
-                    producer.send("iiot-sensor-stream", key=record["asset_id"], value=record)
-                    producer.flush(timeout=2)
+                    _kafka_producer.send(KAFKA_TOPIC_TELEMETRY, key=record["asset_id"], value=record)
                 except Exception:
                     logger.exception("Kafka telemetry publish failed")
                 finally:
@@ -55,7 +56,7 @@ def _start_kafka_publisher():
         threading.Thread(target=publish_loop, name="kafka-telemetry-publisher", daemon=True).start()
         _kafka_worker_started = True
     except Exception:
-        logger.exception("Unable to initialize Kafka telemetry publisher")
+        logger.exception("Unable to initialize Kafka telemetry publisher; continuing with in-process processing")
 
 class RealTimeStreamingEngine:
     """
@@ -83,15 +84,23 @@ class RealTimeStreamingEngine:
         # Performance profiling
         self.avg_stream_throughput = 10.0  # packets/sec
         self.last_packet: Dict[str, Any] = {}
+        self.kafka_consumer = None
+        self._kafka_consumer_thread = None
+        self._kafka_error = None
+        self._event_loop = None
 
     def inject_fault(self, fault_code: int, intensity: float = 1.0):
         """Dynamic fault injection triggered from dashboard controls."""
         self.simulator.set_fault_mode(fault_code, intensity)
+        if self.kafka_consumer:
+            self.kafka_consumer.simulator.set_fault_mode(fault_code, intensity)
         logger.info(f"[Engine] Fault state set to {fault_code} (intensity: {intensity})")
 
     def reset_fault(self):
         """Restore pristine normal operating conditions."""
         self.simulator.reset_to_normal()
+        if self.kafka_consumer:
+            self.kafka_consumer.simulator.reset_to_normal()
         logger.info("[Engine] Restored to normal operation.")
 
     def register_client(self, ws):
@@ -133,17 +142,22 @@ class RealTimeStreamingEngine:
         3. Two-Stage Ensemble inference
         4. Alert logging
         """
+        if KAFKA_ENABLED:
+            raise RuntimeError("step() is only available when Kafka mode is disabled; Kafka mode processes records in its consumer")
         self.packet_counter += 1
         t_now = time.time()
         
         # 1. Physics-based telemetry
         raw_telemetry = self.simulator.generate_sample(t_now)
-        _start_kafka_publisher()
-        if _kafka_queue is not None:
+        if KAFKA_ENABLED:
+            _start_kafka_publisher()
+            if _kafka_queue is None or not _kafka_worker_started:
+                raise RuntimeError("Kafka is enabled, but the telemetry producer is unavailable")
             try:
                 _kafka_queue.put_nowait(raw_telemetry)
-            except Exception:
-                logger.warning("Kafka publish queue is full; dropping telemetry sample")
+            except Exception as exc:
+                logger.error("Kafka publish queue is full; telemetry sample was not published")
+                raise RuntimeError("Kafka telemetry queue is full") from exc
         
         # 2. Digital Twin mathematical synchronization & residuals
         twin_state = self.digital_twin.process_telemetry(raw_telemetry)
@@ -183,15 +197,32 @@ class RealTimeStreamingEngine:
 
     async def run_loop(self):
         """Asynchronous streaming loop running continuously."""
+        if KAFKA_ENABLED:
+            self._event_loop = asyncio.get_running_loop()
+            self._start_kafka_consumer()
         self.is_running = True
         logger.info("[Engine] Streaming loop active at 10 Hz.")
         
         while self.is_running:
             t0 = time.time()
-            packet = await self.step()
+            if KAFKA_ENABLED:
+                raw_telemetry = self.simulator.generate_sample(time.time())
+                _start_kafka_publisher()
+                if _kafka_queue is None or not _kafka_worker_started:
+                    self.is_running = False
+                    raise RuntimeError("Kafka is enabled, but the telemetry producer is unavailable")
+                try:
+                    _kafka_queue.put_nowait(raw_telemetry)
+                except Exception as exc:
+                    logger.error("Kafka publish queue is full; stopping stream")
+                    self.is_running = False
+                    raise RuntimeError("Kafka telemetry queue is full") from exc
+                packet = None
+            else:
+                packet = await self.step()
             
             # Broadcast to active WebSocket connections
-            if self.subscribers:
+            if packet is not None and self.subscribers:
                 dead_sockets = set()
                 for ws in self.subscribers:
                     try:
@@ -205,5 +236,62 @@ class RealTimeStreamingEngine:
             sleep_time = max(0.005, self.interval_sec - elapsed)
             await asyncio.sleep(sleep_time)
 
+    def _start_kafka_consumer(self):
+        if self._kafka_consumer_thread and self._kafka_consumer_thread.is_alive():
+            return
+        self.kafka_consumer = IIoTKafkaConsumer(
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+            message_callback=self._handle_kafka_packet,
+            simulator=self.simulator,
+        )
+        self._kafka_consumer_thread = threading.Thread(
+            target=self.kafka_consumer.start_consuming,
+            name="kafka-telemetry-consumer",
+            daemon=True,
+        )
+        self._kafka_consumer_thread.start()
+
+    def _handle_kafka_packet(self, processed: Dict[str, Any]):
+        """Update dashboard state using a telemetry record consumed from Kafka."""
+        self.packet_counter += 1
+        t_now = processed["raw_telemetry"].get("timestamp", time.time())
+        packet = {
+            "packet_id": self.packet_counter,
+            "timestamp": round(t_now, 4),
+            "raw_telemetry": processed["raw_telemetry"],
+            "digital_twin": processed["digital_twin"],
+            "prediction": processed["prediction"],
+            "window_aggregates": self.compute_sliding_window_metrics(),
+        }
+        self.recent_buffer.append(packet)
+        self.last_packet = packet
+        if packet["prediction"]["is_anomaly"]:
+            alert = {
+                "id": f"ALT-{self.packet_counter}",
+                "timestamp": time.strftime("%H:%M:%S", time.localtime(t_now)),
+                "fault_name": packet["prediction"]["fault_name"],
+                "severity": packet["prediction"]["severity_level"],
+                "confidence": packet["prediction"]["confidence_percent"],
+                "delay_ms": packet["prediction"]["estimation_delay_ms"],
+                "health_index": packet["digital_twin"]["composite_health_index"],
+            }
+            if not self.recent_alerts or self.recent_alerts[-1]["fault_name"] != alert["fault_name"]:
+                self.recent_alerts.append(alert)
+        if self._event_loop and self._event_loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._broadcast_packet(packet), self._event_loop)
+
+    async def _broadcast_packet(self, packet: Dict[str, Any]):
+        dead = set()
+        for ws in self.subscribers:
+            try:
+                await ws.send_json(packet)
+            except Exception:
+                dead.add(ws)
+        for ws in dead:
+            self.unregister_client(ws)
+
     def stop(self):
         self.is_running = False
+        if self.kafka_consumer:
+            self.kafka_consumer.stop()
+        self._event_loop = None

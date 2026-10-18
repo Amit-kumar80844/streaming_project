@@ -61,7 +61,7 @@ This master guide serves as the definitive reference manual for the IOE413 Real-
 | Dashboard Host | `HOST` | `127.0.0.1` (`0.0.0.0` in Docker) | Local loopback binding |
 | Dashboard Port | `PORT` | `8000` | HTTP / WebSocket console port |
 | Heartbeat | `WS_HEARTBEAT_INTERVAL` | `1.0` | Keepalive interval in seconds |
-| Kafka Broker | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Optional Kafka broker target |
+| Kafka Broker | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` in Compose; `localhost:9092` from host | Default Docker stack broker |
 
 ### Fault Classes
 

@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from config.settings import STATIC_DIR, TEMPLATES_DIR, DATA_DIR, HOST, PORT
+from config.settings import STATIC_DIR, TEMPLATES_DIR, DATA_DIR, HOST, PORT, KAFKA_ENABLED
 from streaming.stream_engine import RealTimeStreamingEngine
 from streaming.kafka_producer import IIoTKafkaProducer
 
@@ -54,6 +54,7 @@ logging.getLogger().addHandler(_buf_handler)
 # ------------------------------------------------------------------
 stream_engine = RealTimeStreamingEngine(interval_sec=0.1)
 _kafka_producer: Optional[IIoTKafkaProducer] = None
+_kafka_connected = False
 _streaming_task: Optional[asyncio.Task] = None
 _engine_start_time: float = 0.0
 _engine_log: deque = deque(maxlen=50)
@@ -79,12 +80,15 @@ class ServiceActionResponse(BaseModel):
 # ------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _streaming_task, _engine_start_time, _kafka_producer
+    global _streaming_task, _engine_start_time, _kafka_producer, _kafka_connected
     _engine_start_time = time.time()
     _engine_log.append(f"[{time.strftime('%H:%M:%S')}] Streaming engine started")
     _streaming_task = asyncio.create_task(stream_engine.run_loop())
-    if os.getenv("KAFKA_ENABLED", "false").lower() in {"1", "true", "yes"}:
+    if KAFKA_ENABLED:
         _kafka_producer = IIoTKafkaProducer()
+        _kafka_connected = _kafka_producer.producer is not None
+        if not _kafka_connected:
+            raise RuntimeError("KAFKA_ENABLED=true but Kafka broker connection failed")
     logger.warning(f"[Server] Digital Twin streaming started on http://{HOST}:{PORT}")
     yield
     # --- Shutdown ---
@@ -159,6 +163,8 @@ async def api_health():
         "uptime_sec": round(time.time() - _engine_start_time, 1),
         "stream_running": stream_engine.is_running,
         "packets_processed": stream_engine.packet_counter,
+        "kafka_enabled": KAFKA_ENABLED,
+        "kafka_consumer_error": str(stream_engine.kafka_consumer.error) if stream_engine.kafka_consumer and stream_engine.kafka_consumer.error else None,
         "active_ws_clients": len(stream_engine.subscribers),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
@@ -199,7 +205,7 @@ def _build_services_response() -> Dict[str, Any]:
                 "id": "kafka-broker",
                 "name": "Apache Kafka Broker",
                 "description": "Message broker receiving telemetry from the stream engine",
-                "state": "enabled" if _kafka_producer else "disabled",
+                "state": "connected" if _kafka_connected else ("enabled_but_unavailable" if _kafka_producer else "disabled"),
                 "controllable": False,
                 "note": f"Configured bootstrap servers: {os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')}",
             },
@@ -207,7 +213,7 @@ def _build_services_response() -> Dict[str, Any]:
                 "id": "spark-job",
                 "name": "Spark Structured Streaming Job",
                 "description": "Windowed analytics job running in the Spark container",
-                "state": "enabled" if _kafka_producer else "disabled",
+                "state": "running_in_container" if os.getenv("SPARK_ENABLED", "false").lower() in {"1", "true", "yes"} else "disabled",
                 "controllable": False,
                 "note": "Inspect Spark output with docker compose logs -f spark",
             },

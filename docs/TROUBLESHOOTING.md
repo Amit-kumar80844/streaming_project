@@ -9,10 +9,10 @@ This guide documents the root causes, diagnostic evidence, and verified solution
 - **Root Cause:** No active Kafka broker is running on `localhost:9092`, or IPv6 resolution (`::1`) fails to connect to an IPv4-only broker.
 - **Diagnostic Evidence:** `netstat -ano | findstr 9092` returns empty.
 - **Fix:**
-  - For normal dashboard operation: Kafka is an **optional component**. The in-process engine runs autonomously without Kafka.
-  - To enable Kafka: Start the Confluent Kafka container using Docker Compose:
+  - The default Docker stack starts Kafka with the app. Check broker status with `docker compose ps` and logs with `docker compose logs kafka`.
+  - To start the full stack from the project directory:
     ```powershell
-    docker compose --profile kafka up -d
+    docker compose up -d
     ```
 - **Verification:** Run `docker compose ps` to verify `digital-twin-kafka` is healthy on port 9092.
 
@@ -24,8 +24,9 @@ This guide documents the root causes, diagnostic evidence, and verified solution
 - **Fix:**
   - Submit the Spark job with the Maven dependency coordinate matching the exact Spark/Scala release:
     ```bash
-    spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 streaming/spark_streaming_job.py
+    spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 streaming/spark_streaming_job.py
     ```
+  - In Docker Compose, configure `spark.jars.ivy=/tmp/.ivy2` so Spark can write its dependency-resolution cache as the non-root Spark user.
 - **Verification:** Spark streaming query initializes without `ClassNotFoundException`.
 
 ---

@@ -15,7 +15,7 @@ if str(base_dir) not in sys.path:
     sys.path.insert(0, str(base_dir))
 
 from data.generator import IIoTSensorStreamSimulator
-from config.settings import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC_TELEMETRY, STREAM_BATCH_INTERVAL_SEC
+from config.settings import KAFKA_BOOTSTRAP_SERVERS, KAFKA_ENABLED, KAFKA_TOPIC_TELEMETRY, STREAM_BATCH_INTERVAL_SEC
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("KafkaProducer")
@@ -28,6 +28,10 @@ class IIoTKafkaProducer:
         self.simulator = IIoTSensorStreamSimulator()
         self.producer = None
         self.is_running = False
+
+        if not KAFKA_ENABLED:
+            logger.info("Kafka publishing is disabled by KAFKA_ENABLED")
+            return
         
         self._init_producer()
 

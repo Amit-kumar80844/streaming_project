@@ -57,8 +57,8 @@ PORT=8000
 # Streaming & Heartbeat
 WS_HEARTBEAT_INTERVAL=1.0
 
-# Optional Kafka Broker (Only needed if running external Kafka broker)
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+# Kafka bootstrap server (Docker Compose service DNS)
+KAFKA_BOOTSTRAP_SERVERS=kafka:29092
 ```
 
 In Docker, `HOST` is automatically set to `0.0.0.0` inside `compose.yaml`, while the port mapping exposes `127.0.0.1:8000:8000` on the host to prevent unauthorized LAN access.
@@ -97,7 +97,7 @@ This starts:
 
 | Check | Command | Expected Output |
 |---|---|---|
-| Container Status | `docker compose ps` | `digital-twin-app Up (healthy)` |
+| Container Status | `docker compose ps` | `app`, `kafka`, and `spark` running |
 | Application Health | `curl http://localhost:8000/api/health` | `{"status": "healthy", ...}` |
 | Service Registry | `curl http://localhost:8000/api/services` | Service states list |
-| Live Container Logs | `docker compose logs -f app` | Application event stream |
+| Live Container Logs | `docker compose logs -f app spark` | Application events and Spark window aggregates |

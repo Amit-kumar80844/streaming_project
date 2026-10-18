@@ -65,9 +65,11 @@ flowchart TD
     WS -->|JSON Broadcast 10 Hz| DASH
     DASH -->|REST Actions| REST
 
-    subgraph OptionalKafkaStack ["Optional Distributed Stack (Docker Profile)"]
+    subgraph DistributedStack ["Default Docker Distributed Stack"]
         KAFKA["Apache Kafka Broker (9092)\nTopic: iiot-sensor-stream"]
         SPARK["PySpark Structured Streaming Job\nWindowed Aggregates"]
+        STEP -->|Raw telemetry| KAFKA
+        KAFKA --> SPARK
     end
 ```
 
@@ -97,7 +99,8 @@ Every 100 ms (10 Hz), the in-process streaming loop completes the following 7-ph
 | Component | Default Host Binding | Port | Protocol | Purpose |
 |---|---|---|---|---|
 | Dashboard & API | `127.0.0.1` (`0.0.0.0` in Docker) | `8000` | HTTP / WebSocket | Main web console, REST endpoints, telemetry stream |
-| Optional Kafka Broker | `127.0.0.1` | `9092` | PLAINTEXT | Distributed message broker (profile: `kafka`) |
+| Kafka Broker | `127.0.0.1` | `9092` | PLAINTEXT | Default Docker stack message broker |
+| Spark Structured Streaming | Internal Docker network | — | Kafka client | Default consumer of `iiot-sensor-stream` |
 | Kafka Controller | Internal Docker network | `9093` | PLAINTEXT | Kafka KRaft consensus quorum |
 
 ---

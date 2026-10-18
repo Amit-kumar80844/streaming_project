@@ -31,7 +31,7 @@ In time-critical manufacturing plants, mechanical and electrical faults (bearing
 | In-Scope | Out-of-Scope (Optional / Reference) |
 |---|---|
 | In-process 10 Hz streaming engine | Physical hardware sensor wiring (telemetry is simulated) |
-| Physics-based induction motor/pump digital twin | Distributed multi-cluster Spark/Kafka deployments (available as optional profile) |
+| Physics-based induction motor/pump digital twin | Multi-cluster Spark/Kafka deployments beyond the local default Docker stack |
 | Two-stage ML ensemble (SGD + ExtraTrees) | Cloud-hosted multi-tenant SaaS authentication |
 | REST and WebSocket telemetry API | Arbitrary shell command execution from the web browser |
 | 5-row responsive industrial operations console | Modifying production PLC firmware |

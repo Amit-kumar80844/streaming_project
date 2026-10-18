@@ -7,14 +7,13 @@ applies watermarking and sliding window aggregations,
 and runs real-time condition monitoring.
 """
 
-import sys
 import os
 
 def create_spark_streaming_pipeline():
     """Builds and starts the PySpark Structured Streaming pipeline."""
     try:
         from pyspark.sql import SparkSession
-        from pyspark.sql.functions import from_json, col, from_unixtime, to_timestamp, window, avg, max as spark_max, count, when
+        from pyspark.sql.functions import from_json, col, to_timestamp, window, avg, max as spark_max, count, when
         from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType
     except ImportError:
         print("[Spark Job] PySpark is not installed or available in this environment.")
@@ -69,7 +68,7 @@ def create_spark_streaming_pipeline():
             .selectExpr("CAST(value AS STRING) as json_payload") \
             .select(from_json(col("json_payload"), schema).alias("data")) \
             .select("data.*") \
-            .withColumn("event_time", to_timestamp(from_unixtime(col("timestamp").cast("long"))))
+            .withColumn("event_time", to_timestamp(col("timestamp").cast("timestamp")))
 
         # 5. Apply Watermarking and Sliding Window Aggregations
         windowed_analytics = parsed_stream \

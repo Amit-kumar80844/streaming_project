@@ -54,7 +54,7 @@ if %ATTEMPTS% gtr 30 (
 )
 ping 127.0.0.1 -n 3 >nul
 docker exec digital-twin-app python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" >nul 2>&1
-if %errorlevel% neq 0 goto WAIT_LOOP
+if errorlevel 1 goto WAIT_LOOP
 
 :OPEN_BROWSER
 echo.
