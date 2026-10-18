@@ -28,32 +28,72 @@ class IIoTKafkaConsumer:
         self.digital_twin = IndustrialDigitalTwin()
         self.ensemble = TwoStageFaultDetectionEnsemble()
         self.is_running = False
+        self.consumer = None
+        self.messages_received = 0
+        self._init_consumer()
 
-    def start_consuming(self, message_callback: Optional[Callable] = None):
-        """Starts real-time consumption loop."""
+    def _init_consumer(self):
         try:
             from kafka import KafkaConsumer
-            consumer = KafkaConsumer(
+            self.consumer = KafkaConsumer(
                 self.topic,
                 bootstrap_servers=self.bootstrap_servers,
+                api_version=(2, 6, 0),
                 auto_offset_reset="latest",
                 enable_auto_commit=True,
                 value_deserializer=lambda m: json.loads(m.decode("utf-8")),
                 group_id="iiot-digital-twin-cg",
-                consumer_timeout_ms=5000
+                consumer_timeout_ms=500
             )
             logger.info(f"Subscribed to topic '{self.topic}' at {self.bootstrap_servers}")
-            self.is_running = True
-            
-            for msg in consumer:
+        except Exception as e:
+            logger.warning(f"Could not connect to Kafka consumer at {self.bootstrap_servers} ({e})")
+            self.consumer = None
+
+    def poll_packet(self, timeout_ms: int = 50) -> Optional[dict]:
+        """Polls a single message from Kafka topic, processes through Digital Twin & ML Ensemble."""
+        if not self.consumer:
+            self._init_consumer()
+        if not self.consumer:
+            return None
+        try:
+            records_dict = self.consumer.poll(timeout_ms=timeout_ms, max_records=1)
+            for tp, records in records_dict.items():
+                for msg in records:
+                    telemetry = msg.value
+                    self.messages_received += 1
+                    twin_state = self.digital_twin.process_telemetry(telemetry)
+                    prediction = self.ensemble.predict_stream_packet(telemetry, twin_state["residuals"])
+                    return {
+                        "raw_telemetry": telemetry,
+                        "digital_twin": twin_state,
+                        "prediction": prediction,
+                        "kafka_metadata": {
+                            "topic": msg.topic,
+                            "partition": msg.partition,
+                            "offset": msg.offset,
+                            "timestamp": msg.timestamp
+                        }
+                    }
+        except Exception as e:
+            logger.warning(f"Kafka consumer poll error: {e}")
+            return None
+        return None
+
+    def start_consuming(self, message_callback: Optional[Callable] = None):
+        """Starts real-time consumption loop."""
+        if not self.consumer:
+            self._init_consumer()
+        if not self.consumer:
+            return
+        self.is_running = True
+        try:
+            for msg in self.consumer:
                 if not self.is_running:
                     break
                 telemetry = msg.value
-                
-                # 1. Digital Twin state synchronization & residual calculation
+                self.messages_received += 1
                 twin_state = self.digital_twin.process_telemetry(telemetry)
-                
-                # 2. Two-Stage ML Ensemble Fault Prediction
                 prediction = self.ensemble.predict_stream_packet(telemetry, twin_state["residuals"])
                 
                 processed_packet = {
@@ -72,6 +112,11 @@ class IIoTKafkaConsumer:
 
     def stop(self):
         self.is_running = False
+        if self.consumer:
+            try:
+                self.consumer.close()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     consumer = IIoTKafkaConsumer()
