@@ -1,7 +1,7 @@
 /**
  * Telemetry Charts Manager — Real-Time Digital Twin Dashboard
  * Uses native Canvas API; no external charting library required.
- * IOE413 Team 12
+ * IOE413 Team 10
  */
 
 class TelemetryChartsManager {

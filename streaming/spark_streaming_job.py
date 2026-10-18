@@ -1,20 +1,19 @@
 """
 Spark Structured Streaming Job for Real-Time IIoT Telemetry Anomaly Detection.
-IOE413 Streaming & Data Analytics | Mini Project Team 12 (Rohit Pratap Singh)
+IOE413 Streaming & Data Analytics | Mini Project Team 10 — Mohammed Sirajudheen (2023BCS0132), Rohit Pratap Singh (2023BCS0138), Amit Kumar (2023BCS0210), Kartik P (2023BCD0051)
 
 Ingests continuous sensor telemetry from Apache Kafka,
 applies watermarking and sliding window aggregations,
 and runs real-time condition monitoring.
 """
 
-import sys
 import os
 
 def create_spark_streaming_pipeline():
     """Builds and starts the PySpark Structured Streaming pipeline."""
     try:
         from pyspark.sql import SparkSession
-        from pyspark.sql.functions import from_json, col, from_unixtime, to_timestamp, window, avg, max as spark_max, count, when
+        from pyspark.sql.functions import from_json, col, to_timestamp, window, avg, max as spark_max, count, when
         from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType
     except ImportError:
         print("[Spark Job] PySpark is not installed or available in this environment.")
@@ -28,10 +27,9 @@ def create_spark_streaming_pipeline():
     # 1. Initialize Spark Session with Kafka connector packages
     spark = SparkSession.builder \
         .appName("IIoT-DigitalTwin-StreamingAnomalyDetection") \
-        .master("local[*]") \
+        .master(os.getenv("SPARK_MASTER", "local[*]")) \
         .config("spark.streaming.stopGracefullyOnShutdown", "true") \
         .config("spark.sql.shuffle.partitions", "2") \
-        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0") \
         .getOrCreate()
 
     spark.sparkContext.setLogLevel("WARN")
@@ -54,7 +52,7 @@ def create_spark_streaming_pipeline():
     ])
 
     # 3. Read Stream from Kafka topic
-    kafka_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+    kafka_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
     
     try:
         raw_stream = spark.readStream \
@@ -70,7 +68,7 @@ def create_spark_streaming_pipeline():
             .selectExpr("CAST(value AS STRING) as json_payload") \
             .select(from_json(col("json_payload"), schema).alias("data")) \
             .select("data.*") \
-            .withColumn("event_time", to_timestamp(from_unixtime(col("timestamp"))))
+            .withColumn("event_time", to_timestamp(col("timestamp").cast("timestamp")))
 
         # 5. Apply Watermarking and Sliding Window Aggregations
         windowed_analytics = parsed_stream \
@@ -108,7 +106,7 @@ def create_spark_streaming_pipeline():
 
     except Exception as e:
         print(f"[Spark Job Error] Could not connect to Kafka stream: {e}")
-        print("Note: To run real distributed Spark-Kafka streaming, start Kafka broker on localhost:9092.")
+        raise
 
 if __name__ == "__main__":
     create_spark_streaming_pipeline()

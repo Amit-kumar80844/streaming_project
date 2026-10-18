@@ -1,6 +1,6 @@
 """
 Configuration Settings for IOE413 Real-Time Digital Twin Streaming Project.
-Team No - 12 | Amit Kumar (2023BCS0210), Kartik P (2023BCD0051), Rohit Pratap Singh (2023BCS0138), Mohammed Sirajudheen (2023BCS0132)
+Team No - 10 | Amit Kumar (2023BCS0210), Kartik P (2023BCD0051), Rohit Pratap Singh (2023BCS0138), Mohammed Sirajudheen (2023BCS0132)
 Baseline Paper: Ranpariya & Sharma (2025), Journal of Simulation
 """
 

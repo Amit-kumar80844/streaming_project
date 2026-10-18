@@ -16,7 +16,7 @@ This runbook provides complete operational procedures for running the digital tw
 3. The script will:
    - Verify Docker daemon connectivity.
    - Build the container image using `Dockerfile` (pins Python 3.11-slim and trains model weights if needed).
-   - Launch `digital-twin-app` container via Docker Compose.
+   - Launch `digital-twin-app`, `digital-twin-kafka`, and `digital-twin-spark` via Docker Compose.
    - Poll `http://localhost:8000/api/health` until ready.
    - Automatically open `http://localhost:8000` in your default browser.
 
@@ -57,8 +57,8 @@ PORT=8000
 # Streaming & Heartbeat
 WS_HEARTBEAT_INTERVAL=1.0
 
-# Optional Kafka Broker (Only needed if running external Kafka broker)
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+# Kafka bootstrap server (Docker Compose service DNS)
+KAFKA_BOOTSTRAP_SERVERS=kafka:29092
 ```
 
 In Docker, `HOST` is automatically set to `0.0.0.0` inside `compose.yaml`, while the port mapping exposes `127.0.0.1:8000:8000` on the host to prevent unauthorized LAN access.
@@ -78,17 +78,18 @@ In Docker, `HOST` is automatically set to `0.0.0.0` inside `compose.yaml`, while
 
 ---
 
-## 5. Optional Kafka Broker Profile
+## 5. Kafka and Spark (Default Docker Stack)
 
-To run an Apache Kafka broker alongside the application in Docker:
+Start the full distributed stack:
 
 ```powershell
-docker compose --profile kafka up -d
+docker compose up -d
 ```
 
 This starts:
 - `digital-twin-app` on port 8000
-- `digital-twin-kafka` (Confluent cp-kafka 7.6.1 in KRaft mode) on port 9092
+- `digital-twin-kafka` (Confluent cp-kafka 7.6.1 in KRaft mode) on port 9092. The app publishes telemetry to `iiot-sensor-stream`.
+- `digital-twin-spark` (Spark Structured Streaming 3.5.3) consumes that topic and outputs 5-second sliding window aggregates. Inspect with `docker compose logs -f spark`.
 
 ---
 
@@ -96,7 +97,7 @@ This starts:
 
 | Check | Command | Expected Output |
 |---|---|---|
-| Container Status | `docker compose ps` | `digital-twin-app Up (healthy)` |
+| Container Status | `docker compose ps` | `app`, `kafka`, and `spark` running |
 | Application Health | `curl http://localhost:8000/api/health` | `{"status": "healthy", ...}` |
 | Service Registry | `curl http://localhost:8000/api/services` | Service states list |
-| Live Container Logs | `docker compose logs -f app` | Application event stream |
+| Live Container Logs | `docker compose logs -f app spark` | Application events and Spark window aggregates |

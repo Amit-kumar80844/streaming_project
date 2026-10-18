@@ -1,6 +1,6 @@
 /**
  * Digital Twin Operations Console — Main Application Controller
- * IOE413 Streaming & Data Analytics | Team 12
+ * IOE413 Streaming & Data Analytics | Team 10
  *
  * Responsibilities:
  *  - WebSocket connection with exponential-backoff reconnect

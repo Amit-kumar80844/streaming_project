@@ -16,13 +16,14 @@ if str(base_dir) not in sys.path:
 from config.settings import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC_TELEMETRY
 from models.digital_twin import IndustrialDigitalTwin
 from models.two_stage_ensemble import TwoStageFaultDetectionEnsemble
+from data.generator import IIoTSensorStreamSimulator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("KafkaConsumer")
 
 class IIoTKafkaConsumer:
     """Consumes real-time stream from Kafka topic and runs Digital Twin processing."""
-    def __init__(self, bootstrap_servers: str = KAFKA_BOOTSTRAP_SERVERS, topic: str = KAFKA_TOPIC_TELEMETRY):
+    def __init__(self, bootstrap_servers: str = KAFKA_BOOTSTRAP_SERVERS, topic: str = KAFKA_TOPIC_TELEMETRY, message_callback: Optional[Callable] = None, simulator: Optional[IIoTSensorStreamSimulator] = None):
         self.bootstrap_servers = bootstrap_servers
         self.topic = topic
         self.digital_twin = IndustrialDigitalTwin()
@@ -108,7 +109,11 @@ class IIoTKafkaConsumer:
                     logger.info(f"[Consumer] Anomaly: {prediction['is_anomaly']} | Fault: {prediction['fault_name']} | Delay: {prediction['estimation_delay_ms']}ms | CHI: {twin_state['composite_health_index']}%")
                     
         except Exception as e:
-            logger.error(f"Kafka consumer error: {e}")
+            self.error = e
+            logger.exception("Kafka consumer could not start")
+        finally:
+            if consumer is not None:
+                consumer.close()
 
     def stop(self):
         self.is_running = False

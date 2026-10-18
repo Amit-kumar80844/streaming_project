@@ -1,7 +1,7 @@
 # Project Master Guide — Real-Time Digital Twin for Streaming Anomaly Detection
 
 **Course:** IOE413 Streaming & Data Analytics  
-**Academic Team:** Team 12 — Rohit Pratap Singh (2023BCS0138)  
+**Academic Team:** Team 10 — Mohammed Sirajudheen (2023BCS0132), Rohit Pratap Singh (2023BCS0138), Amit Kumar (2023BCS0210), and Kartik P (2023BCD0051)  
 **Baseline Publication:** A. Ranpariya and S. Sharma, *"A digital twin solution for fault detection in time-critical IIoT applications,"* *Journal of Simulation*, vol. 19, no. 4, pp. 441–454, 2025. [DOI: 10.1080/17477778.2025.2453725](https://doi.org/10.1080/17477778.2025.2453725)
 
 ---
@@ -61,7 +61,7 @@ This master guide serves as the definitive reference manual for the IOE413 Real-
 | Dashboard Host | `HOST` | `127.0.0.1` (`0.0.0.0` in Docker) | Local loopback binding |
 | Dashboard Port | `PORT` | `8000` | HTTP / WebSocket console port |
 | Heartbeat | `WS_HEARTBEAT_INTERVAL` | `1.0` | Keepalive interval in seconds |
-| Kafka Broker | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Optional Kafka broker target |
+| Kafka Broker | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` in Compose; `localhost:9092` from host | Default Docker stack broker |
 
 ### Fault Classes
 

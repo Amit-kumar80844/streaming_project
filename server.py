@@ -1,7 +1,7 @@
 """
 FastAPI Server — Real-Time Digital Twin Anomaly Detection Dashboard.
 Expanded with service lifecycle API, health endpoints, and log access.
-IOE413 Streaming & Data Analytics | Mini Project Team 12
+IOE413 Streaming & Data Analytics | Mini Project Team 10
 """
 
 import asyncio
@@ -9,6 +9,7 @@ import json
 import logging
 import time
 import sys
+import os
 from pathlib import Path
 from collections import deque
 from typing import Any, Dict, Optional
@@ -23,8 +24,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from config.settings import STATIC_DIR, TEMPLATES_DIR, DATA_DIR, HOST, PORT
+from config.settings import STATIC_DIR, TEMPLATES_DIR, DATA_DIR, HOST, PORT, KAFKA_ENABLED
 from streaming.stream_engine import RealTimeStreamingEngine
+from streaming.kafka_producer import IIoTKafkaProducer
 
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s [%(name)s] %(levelname)s %(message)s")
 logger = logging.getLogger("DigitalTwinServer")
@@ -51,6 +53,8 @@ logging.getLogger().addHandler(_buf_handler)
 # Stream engine (the actual real-time processing component)
 # ------------------------------------------------------------------
 stream_engine = RealTimeStreamingEngine(interval_sec=0.1)
+_kafka_producer: Optional[IIoTKafkaProducer] = None
+_kafka_connected = False
 _streaming_task: Optional[asyncio.Task] = None
 _engine_start_time: float = 0.0
 _engine_log: deque = deque(maxlen=50)
@@ -76,14 +80,21 @@ class ServiceActionResponse(BaseModel):
 # ------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _streaming_task, _engine_start_time
+    global _streaming_task, _engine_start_time, _kafka_producer, _kafka_connected
     _engine_start_time = time.time()
     _engine_log.append(f"[{time.strftime('%H:%M:%S')}] Streaming engine started")
     _streaming_task = asyncio.create_task(stream_engine.run_loop())
+    if KAFKA_ENABLED:
+        _kafka_producer = IIoTKafkaProducer()
+        _kafka_connected = _kafka_producer.producer is not None
+        if not _kafka_connected:
+            raise RuntimeError("KAFKA_ENABLED=true but Kafka broker connection failed")
     logger.warning(f"[Server] Digital Twin streaming started on http://{HOST}:{PORT}")
     yield
     # --- Shutdown ---
     stream_engine.stop()
+    if _kafka_producer:
+        _kafka_producer.stop()
     if _streaming_task and not _streaming_task.done():
         _streaming_task.cancel()
         try:
@@ -152,6 +163,8 @@ async def api_health():
         "uptime_sec": round(time.time() - _engine_start_time, 1),
         "stream_running": stream_engine.is_running,
         "packets_processed": stream_engine.packet_counter,
+        "kafka_enabled": KAFKA_ENABLED,
+        "kafka_consumer_error": str(stream_engine.kafka_consumer.error) if stream_engine.kafka_consumer and stream_engine.kafka_consumer.error else None,
         "active_ws_clients": len(stream_engine.subscribers),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
