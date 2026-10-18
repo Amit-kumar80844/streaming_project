@@ -15,7 +15,9 @@ A. Ranpariya and S. Sharma, *"A digital twin solution for fault detection in tim
 3. The launcher builds the image, starts the container, waits for readiness, and opens `http://localhost:8000` in your default browser.
 4. To shut down cleanly: double-click `stop.bat`.
 
-### Option B: Local Python Host Runner
+The default Docker stack starts the dashboard, Kafka broker, and Spark Structured Streaming consumer. The app publishes each generated sensor record to Kafka topic `iiot-sensor-stream`; Spark reads that topic and prints its 5-second window aggregates in `docker compose logs -f spark`.
+
+### Option B: Local Python Host Runner (Dashboard Only)
 ```powershell
 # 1. Install dependencies
 pip install -r requirements.txt
@@ -23,7 +25,7 @@ pip install -r requirements.txt
 # 2. Launch master application
 python run.py
 ```
-This automatically verifies/trains models, starts the 10 Hz streaming engine, boots the FastAPI server on `http://127.0.0.1:8000`, and opens the browser.
+This automatically verifies/trains models and starts the in-process 10 Hz streaming engine. Kafka and Spark are started by the default Docker Compose workflow above.
 
 ---
 

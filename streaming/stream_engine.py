@@ -11,6 +11,9 @@ Coordinates:
 import time
 import asyncio
 import logging
+import os
+import json
+import threading
 from collections import deque
 from typing import Dict, Any, List, Set
 from data.generator import IIoTSensorStreamSimulator
@@ -18,6 +21,41 @@ from models.digital_twin import IndustrialDigitalTwin
 from models.two_stage_ensemble import TwoStageFaultDetectionEnsemble
 
 logger = logging.getLogger("StreamEngine")
+_kafka_queue = None
+_kafka_worker_started = False
+
+def _start_kafka_publisher():
+    """Publish queued telemetry off the async dashboard event loop."""
+    global _kafka_queue, _kafka_worker_started
+    if _kafka_worker_started or os.getenv("KAFKA_ENABLED", "false").lower() not in {"1", "true", "yes"}:
+        return
+    try:
+        from kafka import KafkaProducer
+        producer = KafkaProducer(
+            bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
+            value_serializer=lambda value: json.dumps(value).encode("utf-8"),
+            key_serializer=lambda key: key.encode("utf-8") if key else None,
+            request_timeout_ms=3000,
+            max_block_ms=3000,
+        )
+        import queue
+        _kafka_queue = queue.Queue(maxsize=1000)
+
+        def publish_loop():
+            while True:
+                record = _kafka_queue.get()
+                try:
+                    producer.send("iiot-sensor-stream", key=record["asset_id"], value=record)
+                    producer.flush(timeout=2)
+                except Exception:
+                    logger.exception("Kafka telemetry publish failed")
+                finally:
+                    _kafka_queue.task_done()
+
+        threading.Thread(target=publish_loop, name="kafka-telemetry-publisher", daemon=True).start()
+        _kafka_worker_started = True
+    except Exception:
+        logger.exception("Unable to initialize Kafka telemetry publisher")
 
 class RealTimeStreamingEngine:
     """
@@ -100,6 +138,12 @@ class RealTimeStreamingEngine:
         
         # 1. Physics-based telemetry
         raw_telemetry = self.simulator.generate_sample(t_now)
+        _start_kafka_publisher()
+        if _kafka_queue is not None:
+            try:
+                _kafka_queue.put_nowait(raw_telemetry)
+            except Exception:
+                logger.warning("Kafka publish queue is full; dropping telemetry sample")
         
         # 2. Digital Twin mathematical synchronization & residuals
         twin_state = self.digital_twin.process_telemetry(raw_telemetry)

@@ -28,7 +28,7 @@ if %errorlevel% neq 0 (
 
 echo  [OK] Docker is running.
 
-REM -- Build and start the app (no Kafka by default) --
+REM -- Build and start the full Kafka + Spark + app stack --
 echo  [INFO] Building and starting the application...
 docker compose up --build -d
 

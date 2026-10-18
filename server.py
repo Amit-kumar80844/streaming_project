@@ -9,6 +9,7 @@ import json
 import logging
 import time
 import sys
+import os
 from pathlib import Path
 from collections import deque
 from typing import Any, Dict, Optional
@@ -25,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from config.settings import STATIC_DIR, TEMPLATES_DIR, DATA_DIR, HOST, PORT
 from streaming.stream_engine import RealTimeStreamingEngine
+from streaming.kafka_producer import IIoTKafkaProducer
 
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s [%(name)s] %(levelname)s %(message)s")
 logger = logging.getLogger("DigitalTwinServer")
@@ -51,6 +53,7 @@ logging.getLogger().addHandler(_buf_handler)
 # Stream engine (the actual real-time processing component)
 # ------------------------------------------------------------------
 stream_engine = RealTimeStreamingEngine(interval_sec=0.1)
+_kafka_producer: Optional[IIoTKafkaProducer] = None
 _streaming_task: Optional[asyncio.Task] = None
 _engine_start_time: float = 0.0
 _engine_log: deque = deque(maxlen=50)
@@ -76,14 +79,18 @@ class ServiceActionResponse(BaseModel):
 # ------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _streaming_task, _engine_start_time
+    global _streaming_task, _engine_start_time, _kafka_producer
     _engine_start_time = time.time()
     _engine_log.append(f"[{time.strftime('%H:%M:%S')}] Streaming engine started")
     _streaming_task = asyncio.create_task(stream_engine.run_loop())
+    if os.getenv("KAFKA_ENABLED", "false").lower() in {"1", "true", "yes"}:
+        _kafka_producer = IIoTKafkaProducer()
     logger.warning(f"[Server] Digital Twin streaming started on http://{HOST}:{PORT}")
     yield
     # --- Shutdown ---
     stream_engine.stop()
+    if _kafka_producer:
+        _kafka_producer.stop()
     if _streaming_task and not _streaming_task.done():
         _streaming_task.cancel()
         try:
@@ -191,18 +198,18 @@ def _build_services_response() -> Dict[str, Any]:
             {
                 "id": "kafka-broker",
                 "name": "Apache Kafka Broker",
-                "description": "Message broker (optional — not required for local simulation)",
-                "state": "not_configured",
+                "description": "Message broker receiving telemetry from the stream engine",
+                "state": "enabled" if _kafka_producer else "disabled",
                 "controllable": False,
-                "note": "Start a Kafka broker at KAFKA_BOOTSTRAP_SERVERS to enable broker mode",
+                "note": f"Configured bootstrap servers: {os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')}",
             },
             {
                 "id": "spark-job",
                 "name": "Spark Structured Streaming Job",
-                "description": "Windowed analytics job (requires Kafka + PySpark)",
-                "state": "not_configured",
+                "description": "Windowed analytics job running in the Spark container",
+                "state": "enabled" if _kafka_producer else "disabled",
                 "controllable": False,
-                "note": "Requires Kafka broker and PySpark installation",
+                "note": "Inspect Spark output with docker compose logs -f spark",
             },
         ]
     }
