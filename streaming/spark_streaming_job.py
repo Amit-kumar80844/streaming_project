@@ -1,6 +1,6 @@
 """
 Spark Structured Streaming Job for Real-Time IIoT Telemetry Anomaly Detection.
-IOE413 Streaming & Data Analytics | Mini Project Team 12 (Rohit Pratap Singh)
+IOE413 Streaming & Data Analytics | Mini Project Team 10 — Mohammed Sirajudheen (2023BCS0132), Rohit Pratap Singh (2023BCS0138), Amit Kumar (2023BCS0210), Kartik P (2023BCD0051)
 
 Ingests continuous sensor telemetry from Apache Kafka,
 applies watermarking and sliding window aggregations,

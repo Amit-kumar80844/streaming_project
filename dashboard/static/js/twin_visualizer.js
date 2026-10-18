@@ -1,7 +1,7 @@
 /**
  * Digital Twin Motor/Pump Visualizer
  * Draws the asset using Canvas; animation driven by actual telemetry state.
- * IOE413 Team 12
+ * IOE413 Team 10
  */
 
 class DigitalTwinVisualizer {

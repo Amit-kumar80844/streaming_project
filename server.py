@@ -1,7 +1,7 @@
 """
 FastAPI Server — Real-Time Digital Twin Anomaly Detection Dashboard.
 Expanded with service lifecycle API, health endpoints, and log access.
-IOE413 Streaming & Data Analytics | Mini Project Team 12
+IOE413 Streaming & Data Analytics | Mini Project Team 10
 """
 
 import asyncio

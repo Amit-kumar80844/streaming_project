@@ -1,7 +1,7 @@
 """
 One-Command Master Runner for IOE413 Mini Project.
 Real-Time Digital Twin for Streaming-Based Anomaly Detection
-Team 12 | Mohammed Sirajudheen (2023BCS0132)
+Team 10 | Mohammed Sirajudheen (2023BCS0132), Rohit Pratap Singh (2023BCS0138), Amit Kumar (2023BCS0210), Kartik P (2023BCD0051)
 """
 
 import sys
@@ -18,7 +18,7 @@ def main():
     print("=" * 75)
     print("IOE413 - STREAMING & DATA ANALYTICS MINI PROJECT")
     print("Title: Real-Time Digital Twin for Streaming-Based Anomaly Detection")
-    print("Team No: 12 |   Mohammed Sirajudheen (2023BCS0132)")
+    print("Team No: 10 | Mohammed Sirajudheen (2023BCS0132), Rohit Pratap Singh (2023BCS0138), Amit Kumar (2023BCS0210), Kartik P (2023BCD0051)")
     print("Base Paper: Ranpariya & Sharma (2025), Journal of Simulation")
     print("=" * 75)
 

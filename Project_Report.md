@@ -1,9 +1,8 @@
 # IOE413: Streaming & Data Analytics — Mini Project Report
 ## REAL-TIME DIGITAL TWIN FOR STREAMING-BASED ANOMALY DETECTION
 
-**Team Number:** TEAM NO – 12  
-**Student Name:** Rohit Pratap Singh  
-**Roll Number:** 2023BCS0138  
+**Team Number:** TEAM NO – 10  
+**Team Members:** Mohammed Sirajudheen (2023BCS0132), Rohit Pratap Singh (2023BCS0138), Amit Kumar (2023BCS0210), Kartik P (2023BCD0051)  
 **Department:** Computer Science and Engineering  
 **Academic Session:** 2025–2026  
 
@@ -142,4 +141,4 @@ This mini-project successfully implemented a complete, real-time streaming anoma
 * Multi-asset edge orchestration across heterogeneous factory pump stations.
 
 ---
-*Submitted for IOE413 Streaming & Data Analytics Mini Project — Team No: 12 (Rohit Pratap Singh)*
+*Submitted for IOE413 Streaming & Data Analytics Mini Project — Team No: 10 (Mohammed Sirajudheen, Rohit Pratap Singh, Amit Kumar, Kartik P)*

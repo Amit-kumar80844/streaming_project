@@ -1,7 +1,7 @@
 # Project Overview — Real-Time Digital Twin for Streaming Anomaly Detection
 
 **Course:** IOE413 Streaming & Data Analytics  
-**Academic Team:** Team 12 — Rohit Pratap Singh (2023BCS0138)  
+**Academic Team:** Team 10 — Mohammed Sirajudheen (2023BCS0132), Rohit Pratap Singh (2023BCS0138), Amit Kumar (2023BCS0210), and Kartik P (2023BCD0051)  
 **Baseline Publication:** A. Ranpariya and S. Sharma, *"A digital twin solution for fault detection in time-critical IIoT applications,"* *Journal of Simulation*, vol. 19, no. 4, pp. 441–454, 2025. [DOI: 10.1080/17477778.2025.2453725](https://doi.org/10.1080/17477778.2025.2453725)
 
 ---
